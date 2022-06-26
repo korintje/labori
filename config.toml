@@ -1,5 +1,5 @@
-device_name = "127.0.0.1:8080"
-device_addr = "./db/reservoir.db"
+device_name = "Iwatsu"
+device_addr = "192.168.200.44:5198"
 socket_port = 50001
 measurement_method = "FreqA"
 measurement_interval_sec = 0.001

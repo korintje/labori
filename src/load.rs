@@ -1,4 +1,4 @@
-use crate::{error};
+use crate::{error, model};
 use tokio::sync::mpsc;
 use std::net::TcpStream;
 use std::io::{BufReader, Write, Read, BufWriter};
@@ -6,10 +6,10 @@ use encoding::{Encoding, EncoderTrap};
 use encoding::all::ASCII;
 use tokio::time::{sleep, Duration};
 
-pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMDError> {
+pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::LaboriError> {
 
     // Prepare command bytes
-    let trigger_cmd = ":LOG:LEN 5e5; :LOG:CLE; :FUNC FINA; :GATE:TIME 0.001; :FRUN ON\n";
+    let trigger_cmd = ":LOG:LEN 5e5; :LOG:CLE; :FUNC FINA; :GATE:TIME 0.1; :FRUN ON\n";
     let trigger_cmd = ASCII.encode(trigger_cmd, EncoderTrap::Replace).unwrap();
     let polling_cmd = ":LOG:DATA?\n";
     let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
@@ -26,6 +26,7 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMD
         // Trigger measurements
         writer.write(&trigger_cmd).expect("Trigger FAILURE!!!");
         writer.flush().unwrap();
+        sleep(Duration::from_millis(1000)).await;
 
         // Data polling loop
         loop {
@@ -33,7 +34,7 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMD
             writer.write(&polling_cmd).expect("Polling FAILURE!!!");
             writer.flush().unwrap();
 
-            let mut buff = vec![0; 1025];
+            let mut buff = vec![0; 1024];
             let n = reader.read(&mut buff).expect("RECEIVE FAILURE!!!");
             // println!("{:?}", &buff[..n]);
             println!("{}", n);
@@ -47,7 +48,7 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMD
                 
             }
             
-            sleep(Duration::from_millis(20)).await;
+            sleep(Duration::from_millis(10000)).await;
             // println!("100 ms have elapsed");            
         }
 

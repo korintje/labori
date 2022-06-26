@@ -11,8 +11,9 @@ struct Config {
     device_addr: String,
     socket_port: u16,
     measurement_method: String,
-    measurement_interval_sec: f32,
+    sample_rate: f32,
     sampling_time_millisec: i32,
+    connected: bool,
 }
 
 
