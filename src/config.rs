@@ -6,14 +6,10 @@ const CONFIG_FILENAME: &str = "config.toml";
 
 
 #[derive(Debug, Deserialize)]
-struct Config {
-    device_name: String,
-    device_addr: String,
-    socket_port: u16,
-    measurement_method: String,
-    sample_rate: f32,
-    sampling_time_millisec: i32,
-    connected: bool,
+pub struct Config {
+    pub device_name: String,
+    pub device_addr: String,
+    pub api_port: u16,
 }
 
 
@@ -28,7 +24,7 @@ fn read_file(path: String) -> Result<String, String> {
 }
 
 
-fn get_config() -> Config {
+pub fn get_config() -> Config {
     let path = CONFIG_FILENAME;
     let s = match read_file(path.to_owned()) {
         Ok(s) => s,
@@ -39,9 +35,4 @@ fn get_config() -> Config {
         Ok(c) => return c,
         Err(e) => panic!("fail to parse {}: {}", CONFIG_FILENAME, e),
     };
-}
-
-
-pub fn get_socket_port() -> u16 {
-    get_config().socket_port
 }

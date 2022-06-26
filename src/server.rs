@@ -6,6 +6,7 @@ use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
 use crate::db;
 use crate::load;
+use crate::config;
 use std::path;
 
 struct Config {  
@@ -16,15 +17,24 @@ struct Config {
 }
 
 pub struct APIServer {
-    in_measuring: bool,
-    device_name: String,
-    device_addr: String,
-    api_port: u16,
+    pub in_measuring: bool,
+    pub device_name: String,
+    pub device_addr: String,
+    pub api_port: u16,
     // db_connection: sqlx::SqliteConnection,
 }
 
 
 impl APIServer {
+
+    pub fn from_config() -> Self {
+        APIServer {
+            in_measuring: false,
+            device_name: config::get_config().device_name,
+            device_addr: config::get_config().device_addr,
+            api_port: config::get_config().api_port, 
+        }
+    }
 
     pub fn get_func(&self) -> Result<model::Func, LaboriError> {
         match self.get_params("FUNC?") {
@@ -162,14 +172,14 @@ impl APIServer {
 
     }
 
-    async fn listen(mut self) -> Result<(), LaboriError> {
+    pub async fn listen(mut self) -> Result<(), LaboriError> {
 
         let listener = TcpListener::bind(format!("127.0.0.1:{}", self.api_port))?;
         loop {
             let (stream, _addr) = listener.accept()?;
             let mut reader = BufReader::new(&stream);
             let mut buff = vec![0; 1024];
-            let n = reader.read(&mut buff).expect("API RECEIVE FAILURE!!!");
+            let _n = reader.read(&mut buff).expect("API RECEIVE FAILURE!!!");
 
             // Frequently used command 
             // Initial 2 bytes are reserved for future
@@ -190,13 +200,13 @@ impl APIServer {
 
                     self.in_measuring = true;
                     let func = self._u8_to_func(*func_ba);
-                    self.set_func(func);
+                    let _ = self.set_func(func);
                     let interval = self._u8_to_interval(*interval_ba);
-                    self.set_interval(interval);
-                    self.launch(conn);
+                    let _ = self.set_interval(interval);
+                    let _ = self.launch(conn);
                 }
-                &2u8 => { self.get_func(); },
-                &3u8 => { self.get_interval(); },
+                &2u8 => { let _ = self.get_func(); },
+                &3u8 => { let _ = self.get_interval(); },
                 _ => (),
             }
         }

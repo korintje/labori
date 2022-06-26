@@ -49,7 +49,7 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::Labor
             }
             
             sleep(Duration::from_millis(10000)).await;
-            // println!("100 ms have elapsed");            
+            // println!("100 ms have elapsed");      
         }
 
     } else {
