@@ -37,6 +37,7 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMD
             let n = reader.read(&mut buff).expect("RECEIVE FAILURE!!!");
             // println!("{:?}", &buff[..n]);
             println!("{}", n);
+            // println!("{:?}", &buff[0..n]);
             
             if n >= 2 {
                 // println!("{:?}", &buff[..n]);
@@ -46,7 +47,7 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMD
                 
             }
             
-            sleep(Duration::from_millis(1)).await;
+            sleep(Duration::from_millis(20)).await;
             // println!("100 ms have elapsed");            
         }
 

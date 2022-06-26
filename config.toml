@@ -1,0 +1,6 @@
+device_name = "127.0.0.1:8080"
+device_addr = "./db/reservoir.db"
+socket_port = 50001
+measurement_method = "FreqA"
+measurement_interval_sec = 0.001
+sampling_time_millisec = 10

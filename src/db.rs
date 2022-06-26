@@ -55,7 +55,7 @@ pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConn
 
     while let Some(buff) = rx.recv().await {
 
-        // println!("Here");
+        // println!("{:?}", &ASCII.decode(&buff, DecoderTrap::Replace).unwrap());
         
         // Check and remove LF at the end of the buff
         let freqs_u8 :Vec<u8>;
