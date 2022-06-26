@@ -55,7 +55,7 @@ pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConn
 
     while let Some(buff) = rx.recv().await {
 
-        println!("Here");
+        // println!("Here");
         
         // Check and remove LF at the end of the buff
         let freqs_u8 :Vec<u8>;
@@ -63,9 +63,9 @@ pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConn
             println!("Broken stream");
             continue
         } else {
-            println!("THere");
+            // println!("THere");
             freqs_u8 = buff[..buff.len()-1].to_vec();
-            println!("{:?}", freqs_u8);
+            // println!("{:?}", freqs_u8);
         }
         
         // Separate by comma, decode to ASCII, parse to f64, and append to vec. 
@@ -73,7 +73,8 @@ pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConn
             .map(|x| ASCII.decode(x, DecoderTrap::Replace).unwrap())
             .map(|x| x.parse::<f64>().unwrap())
             .for_each(|x| values.push(format!("(0, {:?})", x)));
-
+            //.for_each(|x| println!("{:?}", x));
+        // println!("{:?}", values.len());
         // Insert to sqlite db if values length > 5000.
         if values.len() > 5000 {
             println!("{:?}", &values);

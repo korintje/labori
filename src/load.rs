@@ -4,11 +4,12 @@ use std::net::TcpStream;
 use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap};
 use encoding::all::ASCII;
+use tokio::time::{sleep, Duration};
 
 pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMDError> {
 
     // Prepare command bytes
-    let trigger_cmd = ":LOG:LEN 5e5; :LOG:CLE; :FUNC FINA; :GATE:TIME 0.01; :FRUN ON\n";
+    let trigger_cmd = ":LOG:LEN 5e5; :LOG:CLE; :FUNC FINA; :GATE:TIME 0.001; :FRUN ON\n";
     let trigger_cmd = ASCII.encode(trigger_cmd, EncoderTrap::Replace).unwrap();
     let polling_cmd = ":LOG:DATA?\n";
     let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
@@ -34,17 +35,26 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMD
 
             let mut buff = vec![0; 1025];
             let n = reader.read(&mut buff).expect("RECEIVE FAILURE!!!");
-            if n >= 2 {
-                match tx0.send(buff[..n].to_vec()).await {
-                    Ok(_) => println!("send ok"),
-                    Err(e) => panic!("Failed to send {}", e),
-                };
-            }
             // println!("{:?}", &buff[..n]);
+            println!("{}", n);
+            
+            if n >= 2 {
+                // println!("{:?}", &buff[..n]);
+                if let Err(e) = tx0.send(buff[..n].to_vec()).await {
+                    panic!("Failed to send {}", e)
+                };
+                
+            }
+            
+            sleep(Duration::from_millis(1)).await;
+            // println!("100 ms have elapsed");            
         }
 
+    } else {
+        println!("Couldn't connect to server...");
     }
 
+    println!("finished");
     Ok(())
 
   }
