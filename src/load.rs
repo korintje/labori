@@ -14,34 +14,35 @@ pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::SQLMD
     let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
 
     let addr = "192.168.200.44:5198";
-    match TcpStream::connect(addr) {
-        Err(_) => {
-            println!("Connection NG.");
-        }
-        Ok(stream) => {
-            
-            println!("Connection Ok.");
-            let mut reader = BufReader::new(&stream);
-            let mut writer = BufWriter::new(&stream);
+    if let Ok(stream) = TcpStream::connect(addr) {
 
-            // Trigger measurements
-            writer.write(&trigger_cmd).expect("Trigger FAILURE!!!");
+        println!("Connection Ok.");
+
+        // Prepare buffers
+        let mut reader = BufReader::new(&stream);
+        let mut writer = BufWriter::new(&stream);
+
+        // Trigger measurements
+        writer.write(&trigger_cmd).expect("Trigger FAILURE!!!");
+        writer.flush().unwrap();
+
+        // Data polling loop
+        loop {
+
+            writer.write(&polling_cmd).expect("Polling FAILURE!!!");
             writer.flush().unwrap();
 
-            // Data polling loop
-            loop {
-
-                writer.write(&polling_cmd).expect("Polling FAILURE!!!");
-                writer.flush().unwrap();
-
-                let mut buff = vec![0; 1025];
-                let n = reader.read(&mut buff).expect("RECEIVE FAILURE!!!");
-                println!("{:?}", &buff[..n]);
-
+            let mut buff = vec![0; 1025];
+            let n = reader.read(&mut buff).expect("RECEIVE FAILURE!!!");
+            if n >= 2 {
+                match tx0.send(buff[..n].to_vec()).await {
+                    Ok(_) => println!("send ok"),
+                    Err(e) => panic!("Failed to send {}", e),
+                };
             }
-
-
+            // println!("{:?}", &buff[..n]);
         }
+
     }
 
     Ok(())

@@ -52,33 +52,34 @@ pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConn
     // Insert atom parameters into the table
     let mut values = vec![];
     let query_head = "INSERT INTO freq VALUES ".to_string();
-    let mut counter = 0;
 
-    while let Some(bytearray) = rx.recv().await {
+    while let Some(buff) = rx.recv().await {
 
-        let text = ASCII.decode(&bytearray[..], DecoderTrap::Replace).unwrap();
-        // println!("text: {}", text);
-        if text == "\n" {
-          // println!("{}", "continue\r");
-          continue;
-        }
-        // println!("{:?}", text);
-        let nums: Vec<f64> = text.split(',').map(|x| x.trim().parse::<f64>().unwrap()).collect();
-        println!("{:?}", nums);
-
-        // tx.send(nums.clone()).await.unwrap();
+        println!("Here");
         
-        if counter < 5000 {
-            for num in &nums {
-                let value = format!("(0, {:?})" , num);
-                values.push(value);
-            }
-            counter += nums.len();
+        // Check and remove LF at the end of the buff
+        let freqs_u8 :Vec<u8>;
+        if buff.last() != Some(&10u8) {
+            println!("Broken stream");
+            continue
         } else {
+            println!("THere");
+            freqs_u8 = buff[..buff.len()-1].to_vec();
+            println!("{:?}", freqs_u8);
+        }
+        
+        // Separate by comma, decode to ASCII, parse to f64, and append to vec. 
+        freqs_u8.split(|b| *b == 44u8)
+            .map(|x| ASCII.decode(x, DecoderTrap::Replace).unwrap())
+            .map(|x| x.parse::<f64>().unwrap())
+            .for_each(|x| values.push(format!("(0, {:?})", x)));
+
+        // Insert to sqlite db if values length > 5000.
+        if values.len() > 5000 {
+            println!("{:?}", &values);
             let query = query_head.clone() + &values.join(", ");
             let _ = &conn.execute(sqlx::query(&query)).await?;
             values = vec![];
-            counter = 0; 
         }
     }
 
