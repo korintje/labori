@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufReader, Read};
-use serde::{Deserialize};
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
