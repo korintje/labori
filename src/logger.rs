@@ -1,5 +1,7 @@
+use std::path::Path;
 use sqlx::{migrate::MigrateDatabase, SqliteConnection, Connection, Sqlite, Executor};
 use crate::{model, error};
+use crate::config::Config;
 use error::LaboriError;
 use tokio::sync::mpsc;
 use encoding::{Encoding, DecoderTrap};
@@ -46,15 +48,22 @@ pub async fn prepare_tables(mut conn: SqliteConnection)
 }
 
 
-pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConnection) 
+pub async fn log(config: Config, mut rx: mpsc::Receiver<Vec<u8>>) 
 -> Result<(), error::LaboriError> {
+
+    let dbpath = format!("{}.db", config.device_name);
+    if ! Path::new(&dbpath).exists() {
+        create_db(&dbpath).await?;
+    }
+    let conn = connect_db(&dbpath).await?;
+    let mut conn = prepare_tables(conn).await?;
 
     // Insert atom parameters into the table
     let mut values = vec![];
     let query_head = "INSERT INTO freq VALUES ".to_string();
 
     while let Some(buff) = rx.recv().await {
-       
+
         // Check and remove LF at the end of the buff
         let freqs_u8 :Vec<u8>;
         if buff.last() != Some(&10u8) {
@@ -63,7 +72,7 @@ pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConn
         } else {
             freqs_u8 = buff[..buff.len()-1].to_vec();
         }
-        
+
         // Separate by comma, decode to ASCII, parse to f64, and append to vec. 
         freqs_u8.split(|b| *b == 44u8)
             .map(|x| ASCII.decode(x, DecoderTrap::Replace).unwrap())
@@ -78,6 +87,7 @@ pub async fn save_db(mut rx: mpsc::Receiver<Vec<u8>>, mut conn: sqlx::SqliteConn
             let _ = &conn.execute(sqlx::query(&query)).await?;
             values = vec![];
         }
+
     }
 
     let query = query_head + &values.join(", ");

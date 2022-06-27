@@ -1,4 +1,6 @@
-use crate::{error, model};
+use crate::error::LaboriError;
+use crate::model::Signal;
+use crate::config::Config;
 use tokio::sync::mpsc;
 use std::net::TcpStream;
 use std::io::{BufReader, Write, Read, BufWriter};
@@ -6,7 +8,7 @@ use encoding::{Encoding, EncoderTrap};
 use encoding::all::ASCII;
 use tokio::time::{sleep, Duration};
 
-pub async fn get_data_tcp(tx0: mpsc::Sender<Vec<u8>>) -> Result<(), error::LaboriError> {
+pub async fn run(config: Config, tx0: mpsc::Sender<Vec<u8>>, rx1: mpsc::Receiver<Signal>) -> Result<(), LaboriError> {
 
     // Prepare command bytes
     let trigger_cmd = ":LOG:LEN 5e5; :LOG:CLE; :FUNC FINA; :GATE:TIME 0.1; :FRUN ON\n";

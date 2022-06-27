@@ -8,16 +8,6 @@ pub enum Command {
   Set,
 }
 
-pub struct State {
-  device_name: String,
-  device_addr: String,
-  api_port: u32,
-  method: String,
-  interval: f32,
-  sampling_interval: u32,
-  connection: bool,
-}
-
 #[derive(Debug)]
 pub struct Atom{
   pub step: i64,
@@ -42,20 +32,21 @@ pub struct Metadata {
     pub xyzhash: u32,
 }
 
+#[derive(Debug)]
 pub enum Func {
-  FINA,
-  FINB,
-  FINC,
-  FLIN,
-  PER,
-  DUTY,
-  PWID,
-  TINT,
-  FRAT,
-  TOT, 
-  VPPA,
-  VPPB,
-  NONE,
+    FINA,
+    FINB,
+    FINC,
+    FLIN,
+    PER,
+    DUTY,
+    PWID,
+    TINT,
+    FRAT,
+    TOT, 
+    VPPA,
+    VPPB,
+    NONE,
 }
 
 impl From<&str> for Func {
@@ -96,4 +87,16 @@ impl From<Func> for &str {
             Func::NONE => "", 
         }
     }
+}
+
+#[derive(Debug)]
+pub enum Signal {
+    Start,
+    Stop,
+}
+
+#[derive(Debug)]
+pub enum State {
+    Running,
+    Holded,
 }

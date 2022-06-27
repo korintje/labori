@@ -22,6 +22,7 @@ pub enum SQLMDError {
 
 }
 */
+use crate::model::{Signal};
 
 #[derive(thiserror::Error, Debug)]
 pub enum LaboriError {
@@ -46,5 +47,8 @@ pub enum LaboriError {
 
     #[error("tokio join failed")]
     JointError(#[from] tokio::task::JoinError),
+
+    #[error("tokio send failed")]
+    SignalSendError(#[from] tokio::sync::mpsc::error::SendError<Signal>),
 
 }

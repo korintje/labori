@@ -2,16 +2,12 @@ use std::fs;
 use std::io::{BufReader, Read};
 use serde::{Deserialize};
 
-const CONFIG_FILENAME: &str = "config.toml";
-
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub device_name: String,
     pub device_addr: String,
     pub api_port: u16,
 }
-
 
 fn read_file(path: String) -> Result<String, String> {
     let mut file_content = String::new();
@@ -23,16 +19,18 @@ fn read_file(path: String) -> Result<String, String> {
     Ok(file_content)
 }
 
+impl Config {
 
-pub fn get_config() -> Config {
-    let path = CONFIG_FILENAME;
-    let s = match read_file(path.to_owned()) {
-        Ok(s) => s,
-        Err(e) => panic!("fail to read config file: {}", e),
-    };
-    let config: Result<Config, toml::de::Error> = toml::from_str(&s);
-    match config {
-        Ok(c) => return c,
-        Err(e) => panic!("fail to parse {}: {}", CONFIG_FILENAME, e),
-    };
+    pub fn from_file(path: &str) -> Config {
+        let s = match read_file(path.to_owned()) {
+            Ok(s) => s,
+            Err(e) => panic!("fail to read config file: {}", e),
+        };
+        let config: Result<Config, toml::de::Error> = toml::from_str(&s);
+        match config {
+            Ok(c) => return c,
+            Err(e) => panic!("fail to parse {}: {}", path, e),
+        };
+    }
+
 }
