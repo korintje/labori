@@ -6,7 +6,6 @@ mod logger;
 mod config;
 use config::Config;
 mod server;
-use std::path;
 use tokio::sync::mpsc;
 
 const CONFIG_FILENAME: &str = "config.toml";
