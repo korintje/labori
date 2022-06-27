@@ -27,4 +27,7 @@ pub enum LaboriError {
     #[error("tokio send failed")]
     SignalSendError(#[from] tokio::sync::mpsc::error::SendError<Signal>),
 
+    #[error("tokio send failed")]
+    CommandParseError(String),
+
 }

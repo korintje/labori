@@ -81,6 +81,17 @@ pub enum State {
     Holded,
 }
 
+const func_values: [&str; 12] = [
+    "FINA", "FINB", "FINC", "FLIN", "PER", "DUTY",
+    "PWID", "TINT", "FRAT", "TOT", "VPPA", "VPPB",
+];
+
+const interval_values: [&str; 7] = [
+    "0.00001", "0.0001", "0.001",
+    "0.01", "0.1", "1", "10",
+];
+
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Command {
     Get { key: String },
@@ -93,31 +104,47 @@ impl Command {
     fn into_IwatsuCommand(&self) -> Result<String, LaboriError> {
 
         let mut cmd = "".to_string();      
-        match *self {
+        match &*self {
             Command::Get{ key: x } => {
-                match &*x {
+                match x.as_ref() {
                     "Func" => cmd += ":FUNC?",
                     "Interval" => cmd += ":GATE:TIME?",
-                    _ => 
+                    _ => return Err(LaboriError::CommandParseError(x.to_string())),
                 }
             },
             Command::Set{ key: x, value: y} => {
-                match &*x {
-                    "Func" => cmd += ":FUNC",
-                    "Interval" => cmd += ":GATE:TIME",
+                match x.as_ref() {
+                    "Func" => {
+                        cmd += ":FUNC ";
+                        if func_values.contains(&y.as_ref()) {
+                            cmd += &y;
+                        } else {
+                            return Err(LaboriError::CommandParseError(y.to_string()))
+                        }
+                    },
+                    "Interval" => {
+                        cmd += ":GATE:TIME ";
+                        if interval_values.contains(&y.as_ref()) {
+                            cmd += &y;
+                        } else {
+                            return Err(LaboriError::CommandParseError(y.to_string()))
+                        }
+                    }
+                    _ => return Err(LaboriError::CommandParseError(y.to_string()))
                 }
             },
             Command::Trigger{ value: x } => {
-                match &*x {
-
+                match x.as_ref() {
+                    "Start" => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN ON",
+                    "Stop" => cmd += ":FRUN OFF",
+                    _ => return Err(LaboriError::CommandParseError(x.to_string()))
                 }
             },
         }
-        "a".to_string()
+        Ok(cmd + "\n")
     }
 
 }
-
 
 pub enum Key {
     Func(Func),
