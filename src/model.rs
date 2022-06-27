@@ -1,5 +1,6 @@
-use serde::{Serialize};
+use serde::{Serialize, Deserialize};
 use sqlx::FromRow;
+use crate::error::LaboriError;
 
 #[derive(FromRow, Serialize)]
 pub struct TableCount {
@@ -68,7 +69,7 @@ impl From<Func> for &str {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Signal {
     Start,
     Stop,
@@ -79,3 +80,58 @@ pub enum State {
     Running,
     Holded,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Command {
+    Get { key: String },
+    Set { key: String, value: String },
+    Trigger { value: String },
+}
+
+impl Command {
+
+    fn into_IwatsuCommand(&self) -> Result<String, LaboriError> {
+
+        let mut cmd = "".to_string();      
+        match *self {
+            Command::Get{ key: x } => {
+                match &*x {
+                    "Func" => cmd += ":FUNC?",
+                    "Interval" => cmd += ":GATE:TIME?",
+                    _ => 
+                }
+            },
+            Command::Set{ key: x, value: y} => {
+                match &*x {
+                    "Func" => cmd += ":FUNC",
+                    "Interval" => cmd += ":GATE:TIME",
+                }
+            },
+            Command::Trigger{ value: x } => {
+                match &*x {
+
+                }
+            },
+        }
+        "a".to_string()
+    }
+
+}
+
+
+pub enum Key {
+    Func(Func),
+    Interval(Interval),
+}
+
+#[derive(Debug)]
+enum Interval {
+  TenMicro,
+  SubMilli,
+  Milli,
+  Centi,
+  Deci,
+  OneSec,
+  Deca,
+}
+

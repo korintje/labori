@@ -7,14 +7,16 @@ use crate::error::LaboriError;
 use crate::config::Config;
 use crate::model::{Signal, Func, State};
 
-
 pub async fn serve(config: Config, tx: mpsc::Sender<Signal>) -> Result<(), LaboriError> {
     
     let mut state = State::Holded;
     let listener = TcpListener::bind(format!("127.0.0.1:{}", config.api_port))?;
     loop {
+        println!("Waiting for clients");
         let (stream, _addr) = listener.accept()?;
+        println!("A Client has connected");
         let mut reader = BufReader::new(&stream);
+        let mut writer = BufWriter::new(&stream);
         let mut buff = vec![0; 1024];
         let _n = reader.read(&mut buff).expect("API RECEIVE FAILURE!!!");
 
@@ -33,16 +35,42 @@ pub async fn serve(config: Config, tx: mpsc::Sender<Signal>) -> Result<(), Labor
             }
             &1u8 => {
                 let func = _u8_to_func(*func_ba);
-                let _ = set_func(&config, &state, func);
+                if let Err(e) = set_func(&config, &state, func) {
+                    writer.write(format!("Error: {}", e).as_bytes()).unwrap();
+                    writer.flush().unwrap();
+                };
                 let interval = _u8_to_interval(*interval_ba);
-                let _ = set_interval(&config, &state, interval);
+                if let Err(e) = set_interval(&config, &state, interval) {
+                    writer.write(format!("Error: {}", e).as_bytes()).unwrap();
+                    writer.flush().unwrap();
+                };
                 match tx.send(Signal::Start).await{
-                    Ok(_) => state = State::Running,
+                    Ok(_) => {
+                        state = State::Running;
+                        println!("Start signal sent")
+                    }
                     Err(e) => return Err(LaboriError::from(e)),
                 }
             }
-            &2u8 => { let _ = get_func(&config, &state); },
-            &3u8 => { let _ = get_interval(&config, &state); },
+            &2u8 => {
+                match get_func(&config, &state) {
+                    Ok(f) => {
+                        let f_str: &str = f.into();
+                        writer.write(f_str.as_bytes()).unwrap();
+                        writer.flush().unwrap();
+                    },
+                    Err(e) => return Err(LaboriError::from(e)),
+                }
+            },
+            &3u8 => {
+                match get_interval(&config, &state) {
+                    Ok(i) => {
+                        writer.write(&i.to_le_bytes()).unwrap();
+                        writer.flush().unwrap();
+                    },
+                    Err(e) => return Err(LaboriError::from(e)),
+                }
+            },
             _ => (),
         }
     }    
@@ -51,14 +79,15 @@ pub async fn serve(config: Config, tx: mpsc::Sender<Signal>) -> Result<(), Labor
 
 
 pub fn get_func(config: &Config, state: &State) -> Result<Func, LaboriError> {
-    match get_params(config, state, "FUNC?") {
+    match get_params(config, state, ":FUNC?") {
         Ok(s) =>  Ok(Func::from(s.as_ref())),
         Err(e) => Err(e),
     }
 }
 
 pub fn set_func(config: &Config, state: &State, func: Func) -> Result<(), LaboriError> {
-    if let Err(e) = set_params(config, state, "FUNC", func.into()) {
+    println!("set func");
+    if let Err(e) = set_params(config, state, ":FUNC", func.into()) {
         Err(e)
     } else {
         Ok(())
@@ -66,7 +95,7 @@ pub fn set_func(config: &Config, state: &State, func: Func) -> Result<(), Labori
 }
 
 pub fn get_interval(config: &Config, state: &State) -> Result<f32, LaboriError> {
-    match get_params(config, state, "GATE:TIME?") {
+    match get_params(config, state, ":GATE:TIME?") {
         Ok(s) =>  match s.parse::<f32>() {
             Ok(f) => Ok(f),
             Err(e) => Err(LaboriError::ParseFloatError(e))
@@ -76,9 +105,11 @@ pub fn get_interval(config: &Config, state: &State) -> Result<f32, LaboriError> 
 }
 
 pub fn set_interval(config: &Config, state: &State, interval: f32) -> Result<(), LaboriError> {
-    if let Err(e) = set_params(config, state, "GATE:TIME", &interval.to_string()) {
+    println!("set interval");
+    if let Err(e) = set_params(config, state, ":GATE:TIME", &interval.to_string()) {
         Err(e)
     } else {
+        println!("set interval OK");
         Ok(())
     }
 }
@@ -101,6 +132,7 @@ fn receive_from_machine(stream: &TcpStream) -> Result<String, LaboriError> {
         Err(e) => return Err(LaboriError::TCPReceiveError(e.to_string()))
     };
     let response_ba = &buff[0..n];
+    println!("Received response: {:?}", response_ba);
     if response_ba.last() != Some(&10u8) {
         return Err(LaboriError::TCPReceiveError("Broken message received".to_string()))
     }
@@ -113,11 +145,12 @@ fn get_params(config: &Config, state: &State, query: &str) -> Result<String, Lab
 
     // Reject request if the system in measuring
     if let State::Running = state {
+        println!("Now in measuring");
         return Err(LaboriError::InMeasuringError("Now in measuring".to_string()))
     }
 
     // Get params
-    let query_ba = ASCII.encode(query, EncoderTrap::Replace).unwrap();
+    let query_ba = ASCII.encode(&(query.to_string() + "\n"), EncoderTrap::Replace).unwrap();
     match std::net::TcpStream::connect(&config.device_addr) {
         Err(e) => return Err(LaboriError::TCPConnectionError(e)),
         Ok(stream) => {
@@ -132,17 +165,21 @@ fn get_params(config: &Config, state: &State, query: &str) -> Result<String, Lab
 fn set_params(config: &Config, state: &State, query: &str, param: &str) -> Result<(), LaboriError> {
 
     // Reject request if the system in measuring
+    println!("query: {}", query);
+    println!("param: {}", param);
     if let State::Running = state {
+        println!("Now in measuring");
         return Err(LaboriError::InMeasuringError("Now in measuring".to_string()))
     }
 
-    // Get params
-    let query = query.to_string() + " " + &param.to_string();
+    // Set params
+    let query = query.to_string() + " " + &param.to_string() + "\n";
     let query_ba = ASCII.encode(&query, EncoderTrap::Replace).unwrap();
     match std::net::TcpStream::connect(&config.device_addr) {
         Err(e) => return Err(LaboriError::TCPConnectionError(e)),
         Ok(stream) => {
             let _ = send_to_machine(&stream, query_ba)?;
+            std::thread::sleep(std::time::Duration::from_secs(1));
             Ok(())
         }
     }

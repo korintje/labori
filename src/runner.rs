@@ -8,7 +8,7 @@ use encoding::{Encoding, EncoderTrap};
 use encoding::all::ASCII;
 use tokio::time::{sleep, Duration};
 
-pub async fn run(config: Config, tx0: mpsc::Sender<Vec<u8>>, mut rx1: mpsc::Receiver<Signal>) 
+pub async fn run(config: Config, tx1: mpsc::Sender<Vec<u8>>, mut rx0: mpsc::Receiver<Signal>) 
 -> Result<(), LaboriError> {
 
     // Prepare command bytes
@@ -18,14 +18,22 @@ pub async fn run(config: Config, tx0: mpsc::Sender<Vec<u8>>, mut rx1: mpsc::Rece
     let polling_cmd = ":LOG:DATA?\n";
     let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
 
+    println!("I am the runner");
+
     loop {
 
-        let signal = if let Some(item) = rx1.recv().await {item} else {continue};
+        println!("loop");
+        // let signal = if let Some(item) = rx1.recv().await {item} else {continue};
+        let r_signal = rx0.recv().await;
+        println!("finish blocking");
+        let signal = r_signal.unwrap();
         if let Signal::Start = signal {
+
+            println!("Received Signal::Start");
 
             if let Ok(stream) = TcpStream::connect(&config.device_addr) {
 
-                println!("Connection Ok.");
+                println!("Runner connection Ok.");
     
                 // Prepare buffers
                 let mut reader = BufReader::new(&stream);
@@ -47,7 +55,7 @@ pub async fn run(config: Config, tx0: mpsc::Sender<Vec<u8>>, mut rx1: mpsc::Rece
                     println!("{}", n);
                     
                     if n >= 2 {
-                        if let Err(e) = tx0.send(buff[..n].to_vec()).await {
+                        if let Err(e) = tx1.send(buff[..n].to_vec()).await {
                             println!("Failed to send {}", e)
                         };
                     }
@@ -56,7 +64,7 @@ pub async fn run(config: Config, tx0: mpsc::Sender<Vec<u8>>, mut rx1: mpsc::Rece
                     sleep(Duration::from_millis(10)).await;
                     
                     // Check stop signal
-                    if let Some(signal) = rx1.recv().await {
+                    if let Some(signal) = rx0.recv().await {
                         if let Signal::Stop = signal {
                             break                        
                         }
@@ -65,5 +73,6 @@ pub async fn run(config: Config, tx0: mpsc::Sender<Vec<u8>>, mut rx1: mpsc::Rece
                 }
             }
         }
+        println!("loop end");
     }
 }
