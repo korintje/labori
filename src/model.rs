@@ -101,7 +101,7 @@ pub enum Command {
 
 impl Command {
 
-    fn into_IwatsuCommand(&self) -> Result<String, LaboriError> {
+    pub fn into_cmd(&self) -> Result<String, LaboriError> {
 
         let mut cmd = "".to_string();      
         match &*self {
@@ -145,20 +145,3 @@ impl Command {
     }
 
 }
-
-pub enum Key {
-    Func(Func),
-    Interval(Interval),
-}
-
-#[derive(Debug)]
-enum Interval {
-  TenMicro,
-  SubMilli,
-  Milli,
-  Centi,
-  Deci,
-  OneSec,
-  Deca,
-}
-

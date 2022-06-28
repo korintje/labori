@@ -1,6 +1,7 @@
 mod model;
 mod runner;
 mod error;
+mod client;
 use error::LaboriError;
 mod logger;
 mod config;
@@ -26,8 +27,13 @@ async fn main() -> Result<(), error::LaboriError> {
     let log_handle = tokio::spawn(logger::log(config, rx1));
 
     // Join spawned virtual machines
-    let results = tokio::join!(serve_handle, run_handle, log_handle);
-    match results {
+    // let results = tokio::join!(serve_handle, run_handle, log_handle);
+    let (r1, r2, r3) = (
+        serve_handle.await.unwrap(), 
+        run_handle.await.unwrap(), 
+        log_handle.await.unwrap()
+    );
+    match (r1, r2, r3) {
         (Ok(_), Ok(_), Ok(_)) => return Ok(()),
         (Err(e), _, _) => return Err(LaboriError::from(e)),
         (_, Err(e), _) => return Err(LaboriError::from(e)),
