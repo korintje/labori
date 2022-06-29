@@ -14,13 +14,12 @@ tcp_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 tcp_client.connect((target_ip,target_port))
 
 # 3.サーバにデータを送信
-data = [0] * 1024
-data[2] = 1
-data[3] = 0
-data[4] = 4
-tcp_client.send(bytes(data))
+data = r'{"Set": { "key": "Func", "value": "FINA" }}'
+data_ba = bytes(data, "utf-8")
+print(data_ba)
+tcp_client.send(data_ba)
 
 # 4.サーバからのレスポンスを受信
 response = tcp_client.recv(buffer_size)
-print("[*]Received a response : {}".format(response))
+print("Received a response : {}".format(response))
 

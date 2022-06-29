@@ -31,9 +31,7 @@ pub enum LaboriError {
     #[error("runnig measurement failed")]
     RunningError(String),
     
-    #[error("Failed to get API message")]
-    APIRecieveError(String),
-    
     #[error("Failed to send API message")]
     APISendError(String),
+
 }
