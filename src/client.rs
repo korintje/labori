@@ -3,7 +3,6 @@ use crate::config::Config;
 use crate::error::LaboriError;
 use std::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TryRecvError;
 use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
@@ -32,7 +31,7 @@ pub async fn connect(
         match cmd_obj {
             Command::Get { key: _ } => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
-                    return Err(LaboriError::CommandGetError(e.to_string()));
+                    return Err(LaboriError::CommandSendError(e.to_string()));
                 }
                 match get_response(&stream) {
                     Err(e) => return Err(LaboriError::CommandGetError(e.to_string())),
@@ -41,7 +40,7 @@ pub async fn connect(
             },
             Command::Set { key: _, value: val } => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
-                    return Err(LaboriError::CommandGetError(e.to_string()));
+                    return Err(LaboriError::CommandSendError(e.to_string()));
                 }
                 tx_to_server.send(Response::SetValue(val)).await.unwrap();
             },
