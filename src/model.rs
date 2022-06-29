@@ -27,8 +27,8 @@ const INTERVAL_VALUES: [&str; 7] = [
 pub enum Command {
     Get { key: String },
     Set { key: String, value: String },
-    Run,
-    Stop,
+    Run {},
+    Stop {},
 }
 
 impl Command {
@@ -73,8 +73,8 @@ impl Command {
                     ))
                 }
             },
-            Command::Run => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN ON",
-            Command::Stop => cmd += ":FRUN OFF",
+            Command::Run{} => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN ON",
+            Command::Stop{} => cmd += ":FRUN OFF",
         }
         Ok(cmd + "\n")
     }
@@ -84,28 +84,41 @@ impl Command {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Response {
     Success(Success),
-    Failed(Failed),
+    Failed(Failure),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Success {
-    Finished,
+    Finished(String),
     SaveTable(String),
     GotValue(String),
     SetValue(String),
-
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum Failed {
-    Busy,
-    NotRunning,
+pub enum Failure {
+    Busy(String),
+    NotRunning(String),
     ErrorInRunning(String),
     InvalidRequest(String),
     InvalidReturn(String),
     InvalidCommand(String),
     CommandNotSent(String),
+    PollerCommandNotSent(String),
     SaveDataFailed(String),
     MachineNotRespond(String),
     SignalFailed(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum PollerCommand {
+    GetState,
+    Run{table_name: String},
+    Stop,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum PollerResponse {
+    Waiting,
+    Running,
 }

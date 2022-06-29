@@ -3,7 +3,7 @@ use std::io::{BufReader, Write, Read, BufWriter};
 use tokio::sync::mpsc;
 use crate::error::LaboriError;
 use crate::config::Config;
-use crate::model::{Command, Response, Failed};
+use crate::model::{Command, Response, Failure};
 use serde_json;
 
 pub async fn serve(
@@ -25,7 +25,7 @@ pub async fn serve(
             Ok(n) => n,
             Err(e) => {
                 write_response(&mut writer, Response::Failed(
-                    Failed::InvalidRequest(
+                    Failure::InvalidRequest(
                         format!("Failed to read request: {:?}", e)
                     )
                 ));
@@ -37,7 +37,7 @@ pub async fn serve(
             Ok(r) => r,
             Err(e) => {
                 write_response(&mut writer, Response::Failed(
-                    Failed::InvalidRequest(
+                    Failure::InvalidRequest(
                         format!("Failed to decode requesrt from bytes: {:?} : {:?}", &buff[0..n], e)
                     )
                 ));
@@ -48,7 +48,7 @@ pub async fn serve(
             Ok(s) => s,
             Err(e) => {
                 write_response(&mut writer, Response::Failed(
-                    Failed::InvalidRequest(
+                    Failure::InvalidRequest(
                         format!("Failed to convert stirng to command: {:?} : {:?}", &request, e)
                     )
                 ));
@@ -59,7 +59,7 @@ pub async fn serve(
             Ok(_) => (),
             Err(e) => {
                 write_response(&mut writer, Response::Failed(
-                    Failed::SignalFailed(e.to_string())
+                    Failure::SignalFailed(e.to_string())
                 ));
                 continue
             },
@@ -70,7 +70,7 @@ pub async fn serve(
                     Ok(r) => r,
                     Err(e) => {
                         write_response(&mut writer, Response::Failed(
-                            Failed::InvalidReturn(e.to_string())
+                            Failure::InvalidReturn(e.to_string())
                         ));
                         continue
                     },

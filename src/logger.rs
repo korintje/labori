@@ -61,6 +61,8 @@ pub async fn log(device_name: String, table_name: String, mut rx: mpsc::Receiver
     let mut values = vec![];
     let query_head = format!("INSERT INTO {} VALUES ", &table_name);
 
+    println!("Start logging");
+
     while let Some(buff) = rx.recv().await {
 
         // Check and remove LF at the end of the buff
