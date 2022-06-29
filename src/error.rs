@@ -21,9 +21,6 @@ pub enum LaboriError {
     #[error("tokio join failed")]
     JointError(#[from] tokio::task::JoinError),
 
-    #[error("tokio send failed")]
-    SignalSendError(#[from] tokio::sync::mpsc::error::SendError<Signal>),
-
     #[error("tokio command parse failed")]
     CommandParseError(String),
 
@@ -35,4 +32,10 @@ pub enum LaboriError {
 
     #[error("runnig measurement failed")]
     RunningError(String),
+    
+    #[error("Failed to get API message")]
+    APIRecieveError(String),
+    
+    #[error("Failed to send API message")]
+    APISendError(String),
 }
