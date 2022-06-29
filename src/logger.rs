@@ -25,21 +25,23 @@ pub async fn connect_db(dbpath: &str)
 }
 
 // Prepare DB tables
-pub async fn prepare_tables(mut conn: SqliteConnection) 
+pub async fn prepare_tables(mut conn: SqliteConnection, table_name: &str) 
 -> Result<SqliteConnection, error::LaboriError> {
   let table_count: model::TableCount = sqlx::query_as(
     "SELECT COUNT(*) as count FROM sqlite_master WHERE TYPE='table' AND name=$1"
   )
-  .bind("freq")
+  .bind(table_name)
   .fetch_one(&mut conn)
   .await?;
   if table_count.count == 0 {
-    if let Err(e) = conn.execute(sqlx::query(
-      "CREATE TABLE IF NOT EXISTS freq (
-        step        INTEGER NOT NULL,
-        charge      REAL NOT NULL
-      )"
-    )).await {
+    if let Err(e) = conn.execute(
+      sqlx::query(&format!(
+        "CREATE TABLE IF NOT EXISTS {} (
+          step        INTEGER NOT NULL,
+          charge      REAL NOT NULL
+        )", table_name
+      ))
+    ).await {
       return Err(LaboriError::SQLError(e))
     };
   }
@@ -55,7 +57,7 @@ pub async fn log(device_name: String, table_name: String, mut rx: mpsc::Receiver
         create_db(&dbpath).await?;
     }
     let conn = connect_db(&dbpath).await?;
-    let mut conn = prepare_tables(conn).await?;
+    let mut conn = prepare_tables(conn, &table_name).await?;
 
     // Insert atom parameters into the table
     let mut values = vec![];
