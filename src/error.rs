@@ -16,9 +16,6 @@ pub enum LaboriError {
     #[error("SQLite connection failed")]
     SQLError(#[from] sqlx::Error),
 
-    #[error("Error in logging")]
-    LogError(String),
-
     #[error("tokio join failed")]
     JointError(#[from] tokio::task::JoinError),
 

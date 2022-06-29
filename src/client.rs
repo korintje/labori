@@ -1,9 +1,8 @@
-use crate::model::{Command, PollerCommand, Response, PollerResponse, Success, Failure};
+use crate::model::{Command, Response, Success, Failure};
 use crate::config::Config;
 use crate::error::LaboriError;
 use crate::logger;
 use std::net::TcpStream;
-use std::task::Poll;
 use tokio::sync::mpsc;
 use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap, DecoderTrap};
@@ -14,9 +13,7 @@ use chrono::Local;
 pub async fn connect(
     config: Config,
     tx_to_server: mpsc::Sender<Response>,
-    // tx_to_poller: mpsc::Sender<PollerCommand>,
     mut rx_from_server: mpsc::Receiver<Command>,
-    // mut rx_from_poller: mpsc::Receiver<PollerResponse>,
 ) -> Result<(), LaboriError> {
 
     let stream = match std::net::TcpStream::connect(&config.device_addr) {
@@ -34,7 +31,7 @@ pub async fn connect(
         let cmd = match cmd_obj.into_cmd() {
             Err(e) => {
                 tx_to_server.send(
-                    Response::Failed(Failure::InvalidCommand(e.to_string()))
+                    Response::Failure(Failure::InvalidCommand(e.to_string()))
                 ).await.unwrap();
                 continue
             },
@@ -45,12 +42,12 @@ pub async fn connect(
             Command::Get { key: _ } => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
                     tx_to_server.send(
-                        Response::Failed(Failure::CommandNotSent(e.to_string()))
+                        Response::Failure(Failure::CommandNotSent(e.to_string()))
                     ).await.unwrap();
                 }
                 match get_response(&stream) {
                     Err(e) => tx_to_server.send(
-                        Response::Failed(Failure::MachineNotRespond(e.to_string()))
+                        Response::Failure(Failure::MachineNotRespond(e.to_string()))
                     ).await.unwrap(),
                     Ok(res) => tx_to_server.send(
                         Response::Success(Success::GotValue(res))
@@ -60,7 +57,7 @@ pub async fn connect(
             Command::Set { key: _, value: val } => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
                     tx_to_server.send(
-                        Response::Failed(Failure::CommandNotSent(e.to_string()))
+                        Response::Failure(Failure::CommandNotSent(e.to_string()))
                     ).await.unwrap();
                 }
                 tx_to_server.send(
@@ -70,21 +67,14 @@ pub async fn connect(
             Command::Run{} => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
                     tx_to_server.send(
-                        Response::Failed(Failure::CommandNotSent(e.to_string()))
+                        Response::Failure(Failure::CommandNotSent(e.to_string()))
                     ).await.unwrap();
                 }
-                match poll(&device_name, &stream, &tx_to_server, &mut rx_from_server).await {
-                    Ok(_) => tx_to_server.send(
-                        Response::Success(Success::Finished("Measurement successfully finished".to_string()))
-                    ).await.unwrap(),
-                    Err(e) => tx_to_server.send(
-                        Response::Failed(Failure::ErrorInRunning(e.to_string()))
-                    ).await.unwrap(),
-                };
+                poll(&device_name, &stream, &tx_to_server, &mut rx_from_server).await;
             },
             Command::Stop{} => {
                 tx_to_server.send(
-                    Response::Failed(Failure::NotRunning("Measurement not running".to_string()))
+                    Response::Failure(Failure::NotRunning("Measurement not running".to_string()))
                 ).await.unwrap();
             }
         }
@@ -124,9 +114,8 @@ async fn poll(
     device_name: &str,
     stream: &TcpStream,
     tx_to_server: &mpsc::Sender<Response>,
-    // tx_to_logger: &mpsc::Sender<Vec<u8>>,
     rx_from_server: &mut mpsc::Receiver<Command>,
-  ) -> Result<(), LaboriError> {
+  ) {
 
     // Spawn logger
     let table_name = Local::now().format("%Y%m%d%H%M%S");
@@ -175,7 +164,7 @@ async fn poll(
                         break
                     },
                     _ => tx_to_server.send(
-                        Response::Failed(Failure::Busy(
+                        Response::Failure(Failure::Busy(
                             "Measurement already running".to_string()
                         ))
                     ).await.unwrap()
@@ -188,8 +177,16 @@ async fn poll(
     }
 
     if let Err(e) = log_handle.await.unwrap() {
-        Err(LaboriError::LogError(e.to_string()))
+        tx_to_server.send(
+            Response::Failure(Failure::SaveDataFailed(
+                e.to_string()
+            ))
+        ).await.unwrap();
     }else{
-        Ok(())
-    }  
+        tx_to_server.send(
+            Response::Success(Success::Finished(
+                "Measurement successfully finished".to_string()
+            ))
+        ).await.unwrap();
+    }
 }

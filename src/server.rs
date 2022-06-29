@@ -24,7 +24,7 @@ pub async fn serve(
         let n = match reader.read(&mut buff) {
             Ok(n) => n,
             Err(e) => {
-                write_response(&mut writer, Response::Failed(
+                write_response(&mut writer, Response::Failure(
                     Failure::InvalidRequest(
                         format!("Failed to read request: {:?}", e)
                     )
@@ -36,7 +36,7 @@ pub async fn serve(
         let request = match std::str::from_utf8(&buff[0..n]) {
             Ok(r) => r,
             Err(e) => {
-                write_response(&mut writer, Response::Failed(
+                write_response(&mut writer, Response::Failure(
                     Failure::InvalidRequest(
                         format!("Failed to decode requesrt from bytes: {:?} : {:?}", &buff[0..n], e)
                     )
@@ -47,7 +47,7 @@ pub async fn serve(
         let command: Command = match serde_json::from_str(&request){
             Ok(s) => s,
             Err(e) => {
-                write_response(&mut writer, Response::Failed(
+                write_response(&mut writer, Response::Failure(
                     Failure::InvalidRequest(
                         format!("Failed to convert stirng to command: {:?} : {:?}", &request, e)
                     )
@@ -58,7 +58,7 @@ pub async fn serve(
         match tx.send(command).await {
             Ok(_) => (),
             Err(e) => {
-                write_response(&mut writer, Response::Failed(
+                write_response(&mut writer, Response::Failure(
                     Failure::SignalFailed(e.to_string())
                 ));
                 continue
@@ -69,7 +69,7 @@ pub async fn serve(
                 let response_str = match serde_json::to_string(&response) {
                     Ok(r) => r,
                     Err(e) => {
-                        write_response(&mut writer, Response::Failed(
+                        write_response(&mut writer, Response::Failure(
                             Failure::InvalidReturn(e.to_string())
                         ));
                         continue

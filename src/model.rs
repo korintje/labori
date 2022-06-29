@@ -84,7 +84,7 @@ impl Command {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Response {
     Success(Success),
-    Failed(Failure),
+    Failure(Failure),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,15 +110,3 @@ pub enum Failure {
     SignalFailed(String),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum PollerCommand {
-    GetState,
-    Run{table_name: String},
-    Stop,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum PollerResponse {
-    Waiting,
-    Running,
-}
