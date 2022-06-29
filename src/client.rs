@@ -115,7 +115,7 @@ async fn poll(
   ) {
 
     // Spawn logger
-    let table_name = Local::now().format("%Y%m%d%H%M%S");
+    let table_name = &Local::now().format("%Y-%m-%dT%H:%M:%S");
     let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
     let log_handle = tokio::spawn(
         logger::log(device_name.to_string(), table_name.to_string(), rx_from_client)

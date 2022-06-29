@@ -36,9 +36,8 @@ pub async fn prepare_tables(mut conn: SqliteConnection, table_name: &str)
   if table_count.count == 0 {
     if let Err(e) = conn.execute(
       sqlx::query(&format!(
-        "CREATE TABLE IF NOT EXISTS {} (
-          step        INTEGER NOT NULL,
-          charge      REAL NOT NULL
+        "CREATE TABLE IF NOT EXISTS '{}' (
+          freq        REAL NOT NULL
         )", table_name
       ))
     ).await {
