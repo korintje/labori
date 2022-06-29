@@ -16,20 +16,14 @@ pub enum LaboriError {
     #[error("SQLite connection failed")]
     SQLError(#[from] sqlx::Error),
 
+    #[error("Error in logging")]
+    LogError(String),
+
     #[error("tokio join failed")]
     JointError(#[from] tokio::task::JoinError),
 
     #[error("tokio command parse failed")]
     CommandParseError(String),
-
-    #[error("tokio command send failed")]
-    CommandSendError(String),
-
-    #[error("tokio command get failed")]
-    CommandGetError(String),
-
-    #[error("runnig measurement failed")]
-    RunningError(String),
     
     #[error("Failed to send API message")]
     APISendError(String),

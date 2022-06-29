@@ -41,7 +41,9 @@ impl Command {
                 match x.as_ref() {
                     "Func" => cmd += ":FUNC?",
                     "Interval" => cmd += ":GATE:TIME?",
-                    _ => return Err(LaboriError::CommandParseError(x.to_string())),
+                    _ => return Err(LaboriError::CommandParseError(
+                        format!("Unregistered key: {}", x.to_string())
+                    )),
                 }
             },
             Command::Set{ key: x, value: y} => {
@@ -51,7 +53,9 @@ impl Command {
                         if FUNC_VALUES.contains(&y.as_ref()) {
                             cmd += &y;
                         } else {
-                            return Err(LaboriError::CommandParseError(y.to_string()))
+                            return Err(LaboriError::CommandParseError(
+                                format!("Unregistered value: {}", y.to_string())
+                            ))
                         }
                     },
                     "Interval" => {
@@ -59,10 +63,14 @@ impl Command {
                         if INTERVAL_VALUES.contains(&y.as_ref()) {
                             cmd += &y;
                         } else {
-                            return Err(LaboriError::CommandParseError(y.to_string()))
+                            return Err(LaboriError::CommandParseError(
+                                format!("Unregistered value: {}", y.to_string())
+                            ))
                         }
                     }
-                    _ => return Err(LaboriError::CommandParseError(y.to_string()))
+                    _ => return Err(LaboriError::CommandParseError(
+                        format!("Unregistered key: {}", x.to_string())
+                    ))
                 }
             },
             Command::Run => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN ON",
@@ -75,6 +83,36 @@ impl Command {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Response {
+    Success(Success),
+    Failed(Failed),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Success {
+    Finished,
+    SaveTable(String),
+    GotValue(String),
+    SetValue(String),
+
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Failed {
+    Busy,
+    NotRunning,
+    ErrorInRunning(String),
+    InvalidRequest(String),
+    InvalidReturn(String),
+    InvalidCommand(String),
+    CommandNotSent(String),
+    SaveDataFailed(String),
+    MachineNotRespond(String),
+    SignalFailed(String),
+}
+
+/*
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Response {
     Busy,
     NotRunning,
     Started,
@@ -85,3 +123,4 @@ pub enum Response {
     InvalidReturn(String),
     SignalFailed(String),
 }
+*/

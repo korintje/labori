@@ -1,6 +1,7 @@
-use crate::model::{Command, Response};
+use crate::model::{Command, Response, Success, Failed};
 use crate::config::Config;
 use crate::error::LaboriError;
+use crate::logger;
 use std::net::TcpStream;
 use tokio::sync::mpsc;
 use std::io::{BufReader, Write, Read, BufWriter};
@@ -8,11 +9,10 @@ use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
 use tokio::time::{sleep, Duration};
 
-
 pub async fn connect(
     config: Config,
     tx_to_server: mpsc::Sender<Response>,
-    tx_to_logger: mpsc::Sender<Vec<u8>>,
+    // tx_to_logger: mpsc::Sender<Vec<u8>>,
     mut rx: mpsc::Receiver<Command>
 ) -> Result<(), LaboriError> {
 
@@ -21,39 +21,73 @@ pub async fn connect(
         Ok(stream) => stream,
     };
 
+    let device_name = config.device_name;
+    let table_name = "table_name".to_string();
+
     while let Some(cmd_obj) = rx.recv().await {
 
         let cmd = match cmd_obj.into_cmd() {
-            Err(e) => return Err(LaboriError::CommandParseError(e.to_string())),
+            Err(e) => {
+                tx_to_server.send(
+                    Response::Failed(Failed::InvalidCommand(e.to_string()))
+                ).await.unwrap();
+                continue
+            },
             Ok(cmd) => cmd,
         };
 
         match cmd_obj {
             Command::Get { key: _ } => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
-                    return Err(LaboriError::CommandSendError(e.to_string()));
+                    tx_to_server.send(
+                        Response::Failed(Failed::CommandNotSent(e.to_string()))
+                    ).await.unwrap();
                 }
                 match get_response(&stream) {
-                    Err(e) => return Err(LaboriError::CommandGetError(e.to_string())),
-                    Ok(res) => tx_to_server.send(Response::GotValue(res)).await.unwrap(),
+                    Err(e) => tx_to_server.send(
+                        Response::Failed(Failed::MachineNotRespond(e.to_string()))
+                    ).await.unwrap(),
+                    Ok(res) => tx_to_server.send(
+                        Response::Success(Success::GotValue(res))
+                    ).await.unwrap(),
                 };
             },
             Command::Set { key: _, value: val } => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
-                    return Err(LaboriError::CommandSendError(e.to_string()));
+                    tx_to_server.send(
+                        Response::Failed(Failed::CommandNotSent(e.to_string()))
+                    ).await.unwrap();
                 }
-                tx_to_server.send(Response::SetValue(val)).await.unwrap();
+                tx_to_server.send(
+                    Response::Success(Success::SetValue(val))
+                ).await.unwrap();
             },
             Command::Run => {
                 if let Err(e) = send_cmd(&stream, &cmd) {
-                    return Err(LaboriError::CommandGetError(e.to_string()));
+                    tx_to_server.send(
+                        Response::Failed(Failed::CommandNotSent(e.to_string()))
+                    ).await.unwrap();
                 }
+                // Spawn logger
+                let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
+                let log_handle = tokio::spawn(
+                    logger::log(device_name.clone(), table_name.clone(), rx_from_client)
+                );
                 match poll(&stream, &tx_to_server, &tx_to_logger, &mut rx).await {
-                    Ok(_) => (),
-                    Err(e) => return Err(LaboriError::RunningError(e.to_string())),
+                    Ok(_) => tx_to_server.send(
+                        Response::Success(Success::Finished)
+                    ).await.unwrap(),
+                    Err(e) => tx_to_server.send(
+                        Response::Failed(Failed::ErrorInRunning(e.to_string()))
+                    ).await.unwrap(),
                 };
+                if let Err(e) = log_handle.await.unwrap() {
+                    return Err(LaboriError::LogError(e.to_string()))
+                }
             },
-            Command::Stop => tx_to_server.send(Response::NotRunning).await.unwrap()
+            Command::Stop => tx_to_server.send(
+                Response::Failed(Failed::NotRunning)
+            ).await.unwrap()
         }
     }
     Ok(())
@@ -124,10 +158,14 @@ async fn poll(
             Ok(cmd) => {
                 match cmd {
                     Command::Stop => {
-                        tx_to_server.send(Response::Finished).await.unwrap();
+                        if let Err(e) = tx_to_logger.send(vec![4u8]).await {
+                            println!("Failed to send kill signal {}", e)
+                        };
                         break
-                    }
-                    _ => tx_to_server.send(Response::Busy).await.unwrap()
+                    },
+                    _ => tx_to_server.send(
+                        Response::Failed(Failed::Busy)
+                    ).await.unwrap()
                 } 
             },
             Err(_) => (),

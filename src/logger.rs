@@ -1,7 +1,6 @@
 use std::path::Path;
 use sqlx::{migrate::MigrateDatabase, SqliteConnection, Connection, Sqlite, Executor};
 use crate::{model, error};
-use crate::config::Config;
 use error::LaboriError;
 use tokio::sync::mpsc;
 use encoding::{Encoding, DecoderTrap};
@@ -48,10 +47,10 @@ pub async fn prepare_tables(mut conn: SqliteConnection)
 }
 
 
-pub async fn log(config: Config, mut rx: mpsc::Receiver<Vec<u8>>) 
+pub async fn log(device_name: String, table_name: String, mut rx: mpsc::Receiver<Vec<u8>>) 
 -> Result<(), error::LaboriError> {
 
-    let dbpath = format!("{}.db", config.device_name);
+    let dbpath = format!("{}.db", device_name);
     if ! Path::new(&dbpath).exists() {
         create_db(&dbpath).await?;
     }
@@ -60,15 +59,20 @@ pub async fn log(config: Config, mut rx: mpsc::Receiver<Vec<u8>>)
 
     // Insert atom parameters into the table
     let mut values = vec![];
-    let query_head = "INSERT INTO freq VALUES ".to_string();
+    let query_head = format!("INSERT INTO {} VALUES ", &table_name);
 
     while let Some(buff) = rx.recv().await {
 
         // Check and remove LF at the end of the buff
         let freqs_u8 :Vec<u8>;
         if buff.last() != Some(&10u8) {
-            println!("Broken stream");
-            continue
+            if buff[0] == 4u8 {
+              println!("Stop logging");
+              break
+            }else{
+              println!("Broken stream");
+              continue
+            }
         } else {
             freqs_u8 = buff[..buff.len()-1].to_vec();
         }

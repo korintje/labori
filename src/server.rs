@@ -3,7 +3,7 @@ use std::io::{BufReader, Write, Read, BufWriter};
 use tokio::sync::mpsc;
 use crate::error::LaboriError;
 use crate::config::Config;
-use crate::model::{Command, Response};
+use crate::model::{Command, Response, Failed};
 use serde_json;
 
 pub async fn serve(
@@ -24,8 +24,10 @@ pub async fn serve(
         let n = match reader.read(&mut buff) {
             Ok(n) => n,
             Err(e) => {
-                write_response(&mut writer, Response::InvalidRequest(
-                    format!("Failed to read request: {:?}", e)
+                write_response(&mut writer, Response::Failed(
+                    Failed::InvalidRequest(
+                        format!("Failed to read request: {:?}", e)
+                    )
                 ));
                 continue
             },
@@ -34,8 +36,10 @@ pub async fn serve(
         let request = match std::str::from_utf8(&buff[0..n]) {
             Ok(r) => r,
             Err(e) => {
-                write_response(&mut writer, Response::InvalidRequest(
-                    format!("Failed to decode requesrt from bytes: {:?} : {:?}", &buff[0..n], e)
+                write_response(&mut writer, Response::Failed(
+                    Failed::InvalidRequest(
+                        format!("Failed to decode requesrt from bytes: {:?} : {:?}", &buff[0..n], e)
+                    )
                 ));
                 continue
             },
@@ -43,8 +47,10 @@ pub async fn serve(
         let command: Command = match serde_json::from_str(&request){
             Ok(s) => s,
             Err(e) => {
-                write_response(&mut writer, Response::InvalidRequest(
-                    format!("Failed to convert stirng to command: {:?} : {:?}", &request, e)
+                write_response(&mut writer, Response::Failed(
+                    Failed::InvalidRequest(
+                        format!("Failed to convert stirng to command: {:?} : {:?}", &request, e)
+                    )
                 ));
                 continue
             },
@@ -52,7 +58,9 @@ pub async fn serve(
         match tx.send(command).await {
             Ok(_) => (),
             Err(e) => {
-                write_response(&mut writer, Response::SignalFailed(e.to_string()));
+                write_response(&mut writer, Response::Failed(
+                    Failed::SignalFailed(e.to_string())
+                ));
                 continue
             },
         };
@@ -61,7 +69,9 @@ pub async fn serve(
                 let response_str = match serde_json::to_string(&response) {
                     Ok(r) => r,
                     Err(e) => {
-                        write_response(&mut writer, Response::InvalidReturn(e.to_string()));
+                        write_response(&mut writer, Response::Failed(
+                            Failed::InvalidReturn(e.to_string())
+                        ));
                         continue
                     },
                 };
