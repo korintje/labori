@@ -145,3 +145,9 @@ impl Command {
     }
 
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Response {
+    Busy,
+    Finished,
+}

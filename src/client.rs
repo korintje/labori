@@ -1,17 +1,18 @@
-use crate::model::Command;
+use crate::model::{Command, Response};
 use crate::config::Config;
 use crate::error::LaboriError;
 use std::net::TcpStream;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
 use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
 use tokio::time::{sleep, Duration};
 
 
-pub async fn send(
+pub async fn connect(
     config: Config,
-    tx_to_server: mpsc::Sender<Vec<u8>>,
+    tx_to_server: mpsc::Sender<Response>,
     tx_to_logger: mpsc::Sender<Vec<u8>>,
     mut rx: mpsc::Receiver<Command>
 ) -> Result<(), LaboriError> {
@@ -38,28 +39,13 @@ pub async fn send(
             }
             Command::Trigger { value: x } => {
                 if &x == "Start" {
-                    let (tx_to_waiter, rx_from_subscriber) = mpsc::channel(1024);
                     let _ = send_cmd(&stream, &cmd);
-                    let s = tokio::spawn(subscribe(stream, tx_to_logger.clone(), tx_to_waiter));
-                    let w = tokio::spawn(wait_signal(rx, rx_from_subscriber));
-                    let (rs, rw) = (s.await.unwrap(), w.await.unwrap());
-                    match (rs, rw) {
-                        (Ok(s), Ok(r)) => {
-                            stream = s;
-                            rx = r;
-                        },
-                        (Err(e), _) => return Err(e),
-                        (_, Err(e)) => return Err(e),
-                    }
+                    poll(&stream, &tx_to_server, &tx_to_logger, &mut rx);
                 }
             }
         }
     }
     Ok(())
-}
-
-fn return_stream(stream: TcpStream) -> TcpStream {
-    stream
 }
 
 fn send_cmd(stream: &TcpStream, cmd: &str) -> Result<(), LaboriError> {
@@ -90,19 +76,20 @@ fn get_response(stream: &TcpStream) -> Result<String, LaboriError> {
     Ok(response)
 }
 
-async fn subscribe(
-    stream: TcpStream,
-    tx_to_logger: mpsc::Sender<Vec<u8>>,
-    tx_to_waiter: mpsc::Sender<u8>,
-) -> Result<TcpStream, LaboriError> {
+async fn poll(
+    stream: &TcpStream,
+    tx_to_server: &mpsc::Sender<Response>,
+    tx_to_logger: &mpsc::Sender<Vec<u8>>,
+    rx_from_server: &mut mpsc::Receiver<Command>,
+) -> Result<(), LaboriError> {
 
     // Prepare command bytes
     let polling_cmd = ":LOG:DATA?\n";
     let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
 
     // Prepare buffers
-    let mut reader = BufReader::new(&stream);
-    let mut writer = BufWriter::new(&stream);
+    let mut reader = BufReader::new(stream);
+    let mut writer = BufWriter::new(stream);
 
     // Data polling loop
     loop {
@@ -121,34 +108,25 @@ async fn subscribe(
         }
         
         // Controll polling interval
-        sleep(Duration::from_millis(10)).await;
-
         // check if kill signal has been sent
-        tx_to_waiter.send();
-                    
+        match rx_from_server.try_recv() {
+            Ok(cmd) => {
+                if let Command::Trigger {value: x} = cmd {
+                    if let Stop = x {
+                        tx_to_server.send(Response::Finished).await;
+                        break
+                    }
+                } 
+            },
+            Err(TryRecvError::Empty) => (),
+            _ => {tx_to_server.send(Response::Busy).await;}
+        }
+        sleep(Duration::from_millis(10)).await  
     }
 
-    Ok(stream)
+    Ok(())
 
 }
-
-async fn wait_signal(
-    mut rx_from_server: mpsc::Receiver<Command>,
-    mut rx_from_subscriber: mpsc::Receiver<u8>,
-) -> Result<mpsc::Receiver<Command>, LaboriError> {
-
-    /*
-
-    while let Some(cmd_obj) = rx.recv().await {
-
-    }
-    */
-    Ok(rx_from_server)
-
-}
-
-
-
 
 
 
