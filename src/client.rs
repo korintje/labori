@@ -16,14 +16,11 @@ pub async fn connect(
     mut rx_from_server: mpsc::Receiver<Command>,
 ) -> Result<(), LaboriError> {
 
+    let device_name = config.device_name;
     let stream = match std::net::TcpStream::connect(&config.device_addr) {
         Err(e) => return Err(LaboriError::TCPConnectionError(e)),
         Ok(stream) => stream,
-    };
-
-    let device_name = config.device_name;
-    // let is_running = false;
-    // let table_name = "table_name".to_string();
+    };  
 
     while let Some(cmd_obj) = rx_from_server.recv().await {
         

@@ -14,8 +14,10 @@ tcp_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 tcp_client.connect((target_ip,target_port))
 
 # 3.サーバにデータを送信
-# data = r'{"Set": { "key": "Interval", "value": "0.001" }}'
-data = r'"Run"'
+# data = r'{"Set": { "key": "Interval", "value": "1" }}'
+# data = r'{"Get": { "key": "Interval", "value": "0.001" }}'
+# data = r'{"Run": {}}'
+data = r'{"Stop": {}}'
 data_ba = bytes(data, "utf-8")
 print(data_ba)
 tcp_client.send(data_ba)
