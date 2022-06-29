@@ -8,6 +8,7 @@ use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
 use tokio::time::{sleep, Duration};
+use chrono::Local;
 
 pub async fn connect(
     config: Config,
@@ -22,7 +23,7 @@ pub async fn connect(
     };
 
     let device_name = config.device_name;
-    let table_name = "table_name".to_string();
+    // let table_name = "table_name".to_string();
 
     while let Some(cmd_obj) = rx.recv().await {
 
@@ -69,9 +70,10 @@ pub async fn connect(
                     ).await.unwrap();
                 }
                 // Spawn logger
+                let table_name = Local::now().format("%Y%m%d%H%M%S");
                 let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
                 let log_handle = tokio::spawn(
-                    logger::log(device_name.clone(), table_name.clone(), rx_from_client)
+                    logger::log(device_name.clone(), table_name.to_string(), rx_from_client)
                 );
                 match poll(&stream, &tx_to_server, &tx_to_logger, &mut rx).await {
                     Ok(_) => tx_to_server.send(

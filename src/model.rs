@@ -109,18 +109,3 @@ pub enum Failed {
     MachineNotRespond(String),
     SignalFailed(String),
 }
-
-/*
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Response {
-    Busy,
-    NotRunning,
-    Started,
-    Finished,
-    GotValue(String),
-    SetValue(String),
-    InvalidRequest(String),
-    InvalidReturn(String),
-    SignalFailed(String),
-}
-*/
