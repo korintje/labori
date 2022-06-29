@@ -98,8 +98,8 @@ pub async fn log(device_name: String, table_name: String, mut rx: mpsc::Receiver
 
     }
 
-    // let query = query_head + &values.join(", ");
-    // let _ = &conn.execute(sqlx::query(&query)).await?;
+    let query = query_head + &values.join(", ");
+    let _ = &conn.execute(sqlx::query(&query)).await?;
 
     Ok(())
 
