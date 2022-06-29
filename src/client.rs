@@ -14,9 +14,9 @@ use chrono::Local;
 pub async fn connect(
     config: Config,
     tx_to_server: mpsc::Sender<Response>,
-    tx_to_poller: mpsc::Sender<PollerCommand>,
+    // tx_to_poller: mpsc::Sender<PollerCommand>,
     mut rx_from_server: mpsc::Receiver<Command>,
-    mut rx_from_poller: mpsc::Receiver<PollerResponse>,
+    // mut rx_from_poller: mpsc::Receiver<PollerResponse>,
 ) -> Result<(), LaboriError> {
 
     let stream = match std::net::TcpStream::connect(&config.device_addr) {
@@ -25,10 +25,12 @@ pub async fn connect(
     };
 
     let device_name = config.device_name;
+    // let is_running = false;
     // let table_name = "table_name".to_string();
 
     while let Some(cmd_obj) = rx_from_server.recv().await {
-
+        
+        // Check whether inputed command is correct
         let cmd = match cmd_obj.into_cmd() {
             Err(e) => {
                 tx_to_server.send(
@@ -66,75 +68,29 @@ pub async fn connect(
                 ).await.unwrap();
             },
             Command::Run{} => {
-                match tx_to_poller.send(PollerCommand::GetState).await {
-                    Err(e) => tx_to_server.send(
-                        Response::Failed(Failure::PollerCommandNotSent(e.to_string()))
-                    ).await.unwrap(),
-                    Ok(_) => match rx_from_poller.recv().await.unwrap() {
-                        PollerResponse::Running => {
-                            tx_to_server.send(
-                                Response::Failed(Failure::Busy(
-                                    "Measurement already running".to_string()
-                                ))
-                            ).await.unwrap();
-                        },
-                        PollerResponse::Waiting => {
-                            if let Err(e) = send_cmd(&stream, &cmd) {
-                                tx_to_server.send(
-                                    Response::Failed(Failure::CommandNotSent(e.to_string()))
-                                ).await.unwrap();
-                            }
-                            let table_name = Local::now().format("%Y%m%d%H%M%S");
-                            tx_to_poller.send(
-                                PollerCommand::Run{table_name: table_name.to_string()}
-                            ).await.unwrap();
-                            tx_to_server.send(
-                                Response::Success(Success::SaveTable(table_name.to_string()))
-                            ).await.unwrap();
-                        },
-                    } 
+                if let Err(e) = send_cmd(&stream, &cmd) {
+                    tx_to_server.send(
+                        Response::Failed(Failure::CommandNotSent(e.to_string()))
+                    ).await.unwrap();
                 }
-            },
-            Command::Stop{} => {
-                match tx_to_poller.send(PollerCommand::GetState).await {
-                    Err(e) => tx_to_server.send(
-                        Response::Failed(Failure::PollerCommandNotSent(e.to_string()))
-                    ).await.unwrap(),
-                    Ok(_) => match rx_from_poller.recv().await.unwrap() {
-                        PollerResponse::Running => {
-                            tx_to_poller.send(PollerCommand::Stop).await.unwrap();
-                            tx_to_server.send(
-                                Response::Success(Success::Finished("Measurement finished".to_string()))
-                            ).await.unwrap();                            
-                            if let Err(e) = send_cmd(&stream, &cmd) {
-                                tx_to_server.send(
-                                    Response::Failed(Failure::CommandNotSent(e.to_string()))
-                                ).await.unwrap();
-                            }                            
-                        },
-                        PollerResponse::Waiting => {
-                            tx_to_server.send(
-                                Response::Failed(Failure::NotRunning("Measurement not running".to_string()))
-                            ).await.unwrap();
-                        },
-                    },            
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-                /*
-                match poll(&stream, &tx_to_server, &tx_to_logger, &mut rx).await {
+                match poll(&device_name, &stream, &tx_to_server, &mut rx_from_server).await {
                     Ok(_) => tx_to_server.send(
-                        Response::Success(Success::Finished)
+                        Response::Success(Success::Finished("Measurement successfully finished".to_string()))
                     ).await.unwrap(),
                     Err(e) => tx_to_server.send(
                         Response::Failed(Failure::ErrorInRunning(e.to_string()))
                     ).await.unwrap(),
                 };
-                */
+            },
+            Command::Stop{} => {
+                tx_to_server.send(
+                    Response::Failed(Failure::NotRunning("Measurement not running".to_string()))
+                ).await.unwrap();
+            }
+        }
+    }
+    Ok(())
+}
 
 fn send_cmd(stream: &TcpStream, cmd: &str) -> Result<(), LaboriError> {
     let cmd_ba = ASCII.encode(cmd, EncoderTrap::Replace).unwrap();
@@ -164,4 +120,76 @@ fn get_response(stream: &TcpStream) -> Result<String, LaboriError> {
     Ok(response)
 }
 
+async fn poll(
+    device_name: &str,
+    stream: &TcpStream,
+    tx_to_server: &mpsc::Sender<Response>,
+    // tx_to_logger: &mpsc::Sender<Vec<u8>>,
+    rx_from_server: &mut mpsc::Receiver<Command>,
+  ) -> Result<(), LaboriError> {
 
+    // Spawn logger
+    let table_name = Local::now().format("%Y%m%d%H%M%S");
+    let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
+    let log_handle = tokio::spawn(
+        logger::log(device_name.to_string(), table_name.to_string(), rx_from_client)
+    );
+  
+    // Prepare command bytes
+    let polling_cmd = ":LOG:DATA?\n";
+    let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
+  
+    // Prepare buffers
+    let mut reader = BufReader::new(stream);
+    let mut writer = BufWriter::new(stream);
+
+    // Respond that the measurement has started
+    tx_to_server.send(
+        Response::Success(Success::SaveTable(table_name.to_string()))
+    ).await.unwrap();
+    
+    // Data polling loop
+    loop {
+  
+        writer.write(&polling_cmd).unwrap();
+        writer.flush().unwrap();
+  
+        let mut buff = vec![0; 1024];
+        let n = reader.read(&mut buff).unwrap();
+        println!("{}\r", n);
+        
+        if n >= 2 {
+            if let Err(e) = tx_to_logger.send(buff[..n].to_vec()).await {
+                println!("Failed to send {}", e)
+            };
+        }
+        
+        // Controll polling interval
+        match rx_from_server.try_recv() {
+            Ok(cmd) => {
+                match cmd {
+                    Command::Stop {} => {
+                        if let Err(e) = tx_to_logger.send(vec![4u8]).await {
+                            println!("Failed to kill logger {}", e)
+                        };
+                        break
+                    },
+                    _ => tx_to_server.send(
+                        Response::Failed(Failure::Busy(
+                            "Measurement already running".to_string()
+                        ))
+                    ).await.unwrap()
+                } 
+            },
+            Err(_) => (),
+        }
+        sleep(Duration::from_millis(10)).await
+        
+    }
+
+    if let Err(e) = log_handle.await.unwrap() {
+        Err(LaboriError::LogError(e.to_string()))
+    }else{
+        Ok(())
+    }  
+}
