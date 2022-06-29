@@ -90,7 +90,8 @@ const INTERVAL_VALUES: [&str; 7] = [
 pub enum Command {
     Get { key: String },
     Set { key: String, value: String },
-    Trigger { value: String },
+    Run,
+    Stop,
 }
 
 impl Command {
@@ -127,13 +128,8 @@ impl Command {
                     _ => return Err(LaboriError::CommandParseError(y.to_string()))
                 }
             },
-            Command::Trigger{ value: x } => {
-                match x.as_ref() {
-                    "Start" => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN ON",
-                    "Stop" => cmd += ":FRUN OFF",
-                    _ => return Err(LaboriError::CommandParseError(x.to_string()))
-                }
-            },
+            Command::Run => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN ON",
+            Command::Stop => cmd += ":FRUN OFF",
         }
         Ok(cmd + "\n")
     }
@@ -143,5 +139,9 @@ impl Command {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Response {
     Busy,
+    NotRunning,
+    Started,
     Finished,
+    GotValue(String),
+    SetValue(String),
 }

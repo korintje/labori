@@ -30,4 +30,9 @@ pub enum LaboriError {
     #[error("tokio send failed")]
     CommandParseError(String),
 
+    #[error("tokio send failed")]
+    CommandSendError(String),
+
+    #[error("tokio send failed")]
+    CommandGetError(String),
 }

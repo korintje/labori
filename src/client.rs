@@ -31,18 +31,27 @@ pub async fn connect(
 
         match cmd_obj {
             Command::Get { key: _ } => {
-                let _ = send_cmd(&stream, &cmd);
-                let res = get_response(&stream);
-            },
-            Command::Set { key: _, value: _ } => {
-                let _ = send_cmd(&stream, &cmd);
-            }
-            Command::Trigger { value: x } => {
-                if &x == "Start" {
-                    let _ = send_cmd(&stream, &cmd);
-                    poll(&stream, &tx_to_server, &tx_to_logger, &mut rx);
+                if let Err(e) = send_cmd(&stream, &cmd) {
+                    return Err(LaboriError::CommandGetError(e.to_string()));
                 }
-            }
+                match get_response(&stream) {
+                    Err(e) => return Err(LaboriError::CommandGetError(e.to_string())),
+                    Ok(res) => tx_to_server.send(Response::GotValue(res)).await.unwrap(),
+                };
+            },
+            Command::Set { key: _, value: val } => {
+                if let Err(e) = send_cmd(&stream, &cmd) {
+                    return Err(LaboriError::CommandGetError(e.to_string()));
+                }
+                tx_to_server.send(Response::SetValue(val)).await.unwrap();
+            },
+            Command::Run => {
+                if let Err(e) = send_cmd(&stream, &cmd) {
+                    return Err(LaboriError::CommandGetError(e.to_string()));
+                }
+                poll(&stream, &tx_to_server, &tx_to_logger, &mut rx).await;
+            },
+            Command::Stop => tx_to_server.send(Response::NotRunning).await.unwrap()
         }
     }
     Ok(())
@@ -111,11 +120,9 @@ async fn poll(
         // check if kill signal has been sent
         match rx_from_server.try_recv() {
             Ok(cmd) => {
-                if let Command::Trigger {value: x} = cmd {
-                    if &x == "Stop" {
-                        tx_to_server.send(Response::Finished).await;
-                        break
-                    }
+                if let Command::Stop = cmd {
+                    tx_to_server.send(Response::Finished).await;
+                    break
                 } 
             },
             Err(TryRecvError::Empty) => (),
