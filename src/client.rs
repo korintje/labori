@@ -48,7 +48,10 @@ pub async fn connect(
                 if let Err(e) = send_cmd(&stream, &cmd) {
                     return Err(LaboriError::CommandGetError(e.to_string()));
                 }
-                poll(&stream, &tx_to_server, &tx_to_logger, &mut rx).await;
+                match poll(&stream, &tx_to_server, &tx_to_logger, &mut rx).await {
+                    Ok(_) => (),
+                    Err(e) => return Err(LaboriError::RunningError(e.to_string())),
+                };
             },
             Command::Stop => tx_to_server.send(Response::NotRunning).await.unwrap()
         }
