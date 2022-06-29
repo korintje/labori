@@ -120,13 +120,15 @@ async fn poll(
         // check if kill signal has been sent
         match rx_from_server.try_recv() {
             Ok(cmd) => {
-                if let Command::Stop = cmd {
-                    tx_to_server.send(Response::Finished).await;
-                    break
+                match cmd {
+                    Command::Stop => {
+                        tx_to_server.send(Response::Finished).await.unwrap();
+                        break
+                    }
+                    _ => tx_to_server.send(Response::Busy).await.unwrap()
                 } 
             },
-            Err(TryRecvError::Empty) => (),
-            _ => {tx_to_server.send(Response::Busy).await;}
+            Err(_) => (),
         }
         sleep(Duration::from_millis(10)).await  
     }
