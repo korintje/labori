@@ -75,18 +75,12 @@ pub enum Signal {
     Stop,
 }
 
-#[derive(Debug)]
-pub enum State {
-    Running,
-    Holded,
-}
-
-const func_values: [&str; 12] = [
+const FUNC_VALUES: [&str; 12] = [
     "FINA", "FINB", "FINC", "FLIN", "PER", "DUTY",
     "PWID", "TINT", "FRAT", "TOT", "VPPA", "VPPB",
 ];
 
-const interval_values: [&str; 7] = [
+const INTERVAL_VALUES: [&str; 7] = [
     "0.00001", "0.0001", "0.001",
     "0.01", "0.1", "1", "10",
 ];
@@ -116,7 +110,7 @@ impl Command {
                 match x.as_ref() {
                     "Func" => {
                         cmd += ":FUNC ";
-                        if func_values.contains(&y.as_ref()) {
+                        if FUNC_VALUES.contains(&y.as_ref()) {
                             cmd += &y;
                         } else {
                             return Err(LaboriError::CommandParseError(y.to_string()))
@@ -124,7 +118,7 @@ impl Command {
                     },
                     "Interval" => {
                         cmd += ":GATE:TIME ";
-                        if interval_values.contains(&y.as_ref()) {
+                        if INTERVAL_VALUES.contains(&y.as_ref()) {
                             cmd += &y;
                         } else {
                             return Err(LaboriError::CommandParseError(y.to_string()))

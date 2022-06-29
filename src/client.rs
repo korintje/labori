@@ -17,7 +17,7 @@ pub async fn connect(
     mut rx: mpsc::Receiver<Command>
 ) -> Result<(), LaboriError> {
 
-    let mut stream = match std::net::TcpStream::connect(&config.device_addr) {
+    let stream = match std::net::TcpStream::connect(&config.device_addr) {
         Err(e) => return Err(LaboriError::TCPConnectionError(e)),
         Ok(stream) => stream,
     };
@@ -112,7 +112,7 @@ async fn poll(
         match rx_from_server.try_recv() {
             Ok(cmd) => {
                 if let Command::Trigger {value: x} = cmd {
-                    if let Stop = x {
+                    if &x == "Stop" {
                         tx_to_server.send(Response::Finished).await;
                         break
                     }
@@ -128,51 +128,3 @@ async fn poll(
 
 }
 
-
-
-/*
-fn get_params(config: &Config, state: &State, query: &str) -> Result<String, LaboriError> {
-
-    // Reject request if the system in measuring
-    if let State::Running = state {
-        println!("Now in measuring");
-        return Err(LaboriError::InMeasuringError("Now in measuring".to_string()))
-    }
-
-    // Get params
-    let query_ba = ASCII.encode(&(query.to_string() + "\n"), EncoderTrap::Replace).unwrap();
-    match std::net::TcpStream::connect(&config.device_addr) {
-        Err(e) => return Err(LaboriError::TCPConnectionError(e)),
-        Ok(stream) => {
-            let _ = send_to_machine(&stream, query_ba)?;
-            let response = receive_from_machine(&stream)?;
-            Ok(response)
-        }
-    }
-
-}
-
-fn set_params(config: &Config, state: &State, query: &str, param: &str) -> Result<(), LaboriError> {
-
-    // Reject request if the system in measuring
-    println!("query: {}", query);
-    println!("param: {}", param);
-    if let State::Running = state {
-        println!("Now in measuring");
-        return Err(LaboriError::InMeasuringError("Now in measuring".to_string()))
-    }
-
-    // Set params
-    let query = query.to_string() + " " + &param.to_string() + "\n";
-    let query_ba = ASCII.encode(&query, EncoderTrap::Replace).unwrap();
-    match std::net::TcpStream::connect(&config.device_addr) {
-        Err(e) => return Err(LaboriError::TCPConnectionError(e)),
-        Ok(stream) => {
-            let _ = send_to_machine(&stream, query_ba)?;
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            Ok(())
-        }
-    }
-
-}
-*/
