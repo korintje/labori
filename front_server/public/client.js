@@ -1,8 +1,10 @@
-const MONITOR = document.getElementById('monitor');
+const MONITOR_VIEW = document.getElementById('monitor');
+const HISTORY_VIEW = document.getElementById('history');
 const indicator = document.getElementById("socket");
+const start_time = document.getElementById("start_time");
 const counter = document.getElementById("packet_count");
-const read_button = document.getElementById("read_button");
-const unread_button = document.getElementById("unread_button");
+/* const read_button = document.getElementById("read_button"); */
+/* const unread_button = document.getElementById("unread_button"); */
 const get_interval_button = document.getElementById("get_interval");
 /* const set_interval_button = document.getElementById("set_interval"); */
 const interval_select = document.getElementById("interval_select");
@@ -17,7 +19,6 @@ let update_history = (socket) => {
     history_select.remove(i);
   }
   socket.emit("get_tables", "", (tables) => {
-    console.log(tables)
     for (const table of tables) {
       console.log(table);
       let option = document.createElement("option");
@@ -28,14 +29,30 @@ let update_history = (socket) => {
   });  
 }
 
+function setOption(selectElement, value) {
+  return [...selectElement.options].some((option, index) => {
+      if (option.value == value) {
+          selectElement.selectedIndex = index;
+          return true;
+      }
+  });
+}
+
 let xs = [];
 let ys = [];
 let rs = [];
 
 Plotly.newPlot(
-MONITOR,
-[{ x: xs, y: ys }],
-{ margin: { t: 0 } }
+  MONITOR_VIEW,
+  [{ x: xs, y: ys }],
+  { margin: { t: 0 } }
+);
+  
+
+Plotly.newPlot(
+  HISTORY_VIEW,
+  [{ x: xs, y: ys }],
+  { margin: { t: 0 } }
 );
 
 // Server connection event
@@ -43,6 +60,9 @@ const socket = io();
 console.log("connected to the server");
 update_history(socket);
 socket.on("update_qcm", (data_str) => {
+    xs = [];
+    ys = [];
+    rs = [];
     console.log(data_str);
     let data = JSON.parse(data_str);
     data.forEach(function(datum){
@@ -50,8 +70,8 @@ socket.on("update_qcm", (data_str) => {
         ys.push(datum["freq"]);
         rs.push(datum["rate"]);
     });
-    Plotly.newPlot(
-        MONITOR,
+    Plotly.update(
+        MONITOR_VIEW,
         [{ x: xs, y: ys }],
         { margin: { t: 0 } }
     );
@@ -64,17 +84,6 @@ let count;
 socket.on('connect', function() {
   count = 0;
   indicator.innerHTML= "connected";
-  
-  read_button.addEventListener("click", () => {
-    socket.emit("read");
-  });
-
-  unread_button.addEventListener("click", () => {
-    socket.emit("unread");
-    xs = [];
-    ys = [];
-    rs = [];
-  });
   
   get_interval_button.addEventListener("click", () => {
     socket.emit("get_interval", "", (response) => {
@@ -104,7 +113,7 @@ socket.on('connect', function() {
         rs.push(datum["rate"]);
       });
       Plotly.newPlot(
-        MONITOR,
+        HISTORY_VIEW,
         [{ x: xs, y: ys }],
         { margin: { t: 0 } }
       );
@@ -114,7 +123,10 @@ socket.on('connect', function() {
   run_button.addEventListener("click", () => {
     socket.emit("run", "", (response) => {
       console.log(response);
-      update_history(socket);
+      let table_name = response["Success"]["SaveTable"];
+      console.log(table_name);
+      indicator.innerHTML= table_name;
+      socket.emit("loop", table_name);
     });
   });
   

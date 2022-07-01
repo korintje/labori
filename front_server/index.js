@@ -82,7 +82,6 @@ io.on("connection", socket => {
   socket.on("loop", (table, callback)  => {
     console.log("read SQL signal from : " + socket.id);
     streaming = setInterval(() => {
-      console.log("reading SQL");
       db.all(`select *, rowid from '${table}' where rowid>${last_rowid}`, (_err, data) => {
         let last_row = data[data.length - 1];
         if (last_row !== undefined) {
@@ -127,7 +126,6 @@ io.on("connection", socket => {
   socket.on('get_tables', (_arg, callback) => {
     db.serialize(function () {
       db.all("select name from sqlite_master where type='table'", function (err, tables) {
-        console.log(tables);
         callback(tables);
       });
     });
