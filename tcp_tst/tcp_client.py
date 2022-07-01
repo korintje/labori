@@ -15,7 +15,7 @@ tcp_client.connect((target_ip,target_port))
 
 # 3.サーバにデータを送信
 # data = r'{"Set": { "key": "Interval", "value": "1" }}'
-# data = r'{"Get": { "key": "Interval", "value": "0.001" }}'
+# data = r'{"Get": { "key": "Interval" }}'
 # data = r'{"Run": {}}'
 data = r'{"Stop": {}}'
 data_ba = bytes(data, "utf-8")
