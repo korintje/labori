@@ -4,12 +4,6 @@ pub enum LaboriError {
     #[error("Failed to connect Frequency conter")]
     TCPConnectionError(#[from] std::io::Error),
 
-    #[error("Failed to send message to Frequency conter")]
-    TCPSendError(String),
-
-    #[error("Failed to receive message from Frequency conter")]
-    TCPReceiveError(String),
-
     #[error("Parse int error")]
     ParseFloatError(#[from] std::num::ParseFloatError),
 

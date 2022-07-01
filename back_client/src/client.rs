@@ -39,7 +39,7 @@ pub async fn connect(
             Command::Get { key: _ } => {
                 send_cmd(&stream, &tx_to_server, &cmd).await;
                 tx_to_server.send(
-                    get_response(&stream, &tx_to_server).await
+                    get_response(&stream).await
                 ).await.unwrap();
             },
             Command::Set { key: _, value: val } => {
@@ -74,7 +74,7 @@ async fn send_cmd(stream: &TcpStream, tx: &mpsc::Sender<Response>, cmd: &str) {
     writer.flush().unwrap();
 }
 
-async fn get_response(stream: &TcpStream, tx: &mpsc::Sender<Response>) -> Response {
+async fn get_response(stream: &TcpStream) -> Response {
     let mut reader = BufReader::new(stream);
     let mut buff = vec![0; 1024];
     match reader.read(&mut buff) {
@@ -103,7 +103,7 @@ async fn poll(
     // Get interval value
     let cmd = Command::Get { key: "Interval".to_string() }.into_cmd().unwrap();
     send_cmd(&stream, &tx_to_server, &cmd).await;
-    let response = get_response(&stream, &tx_to_server).await;
+    let response = get_response(&stream).await;
     let interval = match response {
         Response::Success(Success::GotValue(val)) => val,
         _ => panic!("Could not to get interval value from machine"),
