@@ -73,7 +73,7 @@ io.on("connection", socket => {
   socket.on("read", (table, callback)  => {
     console.log(`select * from '${table}'`);
     db.all(`select * from '${table}'`, (_err, data) => {
-      console.log(data);
+      console.log(`${data.length} data has sent.`);
       callback(data);
     });
   });  

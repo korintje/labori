@@ -13,6 +13,9 @@ const history_select = document.getElementById("history_select");
 const history_options = document.getElementById("history_select");
 
 let update_history = (socket) => {
+  for (var i=0; i<history_select.length; i++) {
+    history_select.remove(i);
+  }
   socket.emit("get_tables", "", (tables) => {
     console.log(tables)
     for (const table of tables) {
@@ -91,8 +94,10 @@ socket.on('connect', function() {
     let index = history_select.selectedIndex;
     let table = history_options[index].value;
     socket.emit("read", table, (data) => {
-      console.log(data);
-      xs, ys, rs = [], [], [];
+      console.log(`${data.length} data has received.`);
+      xs = [];
+      ys = [];
+      rs = [];
       data.forEach(function(datum){
         xs.push(datum["time"]);
         ys.push(datum["freq"]);
