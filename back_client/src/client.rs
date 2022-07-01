@@ -37,19 +37,19 @@ pub async fn connect(
 
         match cmd_obj {
             Command::Get { key: _ } => {
-                send_cmd(&stream, &tx_to_server, &cmd);
+                send_cmd(&stream, &tx_to_server, &cmd).await;
                 tx_to_server.send(
-                    get_response(&stream, tx_to_server).await
+                    get_response(&stream, &tx_to_server).await
                 ).await.unwrap();
             },
             Command::Set { key: _, value: val } => {
-                send_cmd(&stream, &tx_to_server, &cmd);
+                send_cmd(&stream, &tx_to_server, &cmd).await;
                 tx_to_server.send(
                     Response::Success(Success::SetValue(val))
                 ).await.unwrap();
             },
             Command::Run{} => {
-                send_cmd(&stream, &tx_to_server, &cmd);
+                send_cmd(&stream, &tx_to_server, &cmd).await;
                 poll(&device_name, &stream, &tx_to_server, &mut rx_from_server).await;
             },
             Command::Stop{} => {
@@ -102,14 +102,18 @@ async fn poll(
 
     // Get interval value
     let cmd = Command::Get { key: "Interval".to_string() }.into_cmd().unwrap();
-    send_cmd(&stream, &tx_to_server, &cmd);
-    let response = get_response(&stream, &tx_to_server);
+    send_cmd(&stream, &tx_to_server, &cmd).await;
+    let response = get_response(&stream, &tx_to_server).await;
+    let interval = match response {
+        Response::Success(Success::GotValue(val)) => val,
+        _ => panic!("Could not to get interval value from machine"),
+    };
 
     // Spawn logger
     let table_name = &Local::now().format("%Y-%m-%dT%H:%M:%S");
     let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
     let log_handle = tokio::spawn(
-        logger::log(device_name.to_string(), table_name.to_string(), interval, rx_from_client)
+        logger::log(device_name.to_string(), table_name.to_string(), interval.parse().unwrap(), rx_from_client)
     );
   
     // Prepare command bytes
