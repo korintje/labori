@@ -1,0 +1,13 @@
+# toml setting for front server
+title = "Labori front server setting"
+
+[WS_server]
+address = "127.0.0.1"
+port = 3000
+
+[TCP_client]
+address = "127.0.0.1"
+port = 50001
+
+[database]
+sampling_rate = 100

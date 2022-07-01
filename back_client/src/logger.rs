@@ -37,7 +37,9 @@ pub async fn prepare_tables(mut conn: SqliteConnection, table_name: &str)
     if let Err(e) = conn.execute(
       sqlx::query(&format!(
         "CREATE TABLE IF NOT EXISTS '{}' (
-          freq        REAL NOT NULL
+          time    REAL NOT NULL,
+          freq    REAL NOT NULL,
+          rate    INTEGER NOT NULL
         )", table_name
       ))
     ).await {
@@ -48,8 +50,12 @@ pub async fn prepare_tables(mut conn: SqliteConnection, table_name: &str)
 }
 
 
-pub async fn log(device_name: String, table_name: String, mut rx: mpsc::Receiver<Vec<u8>>) 
--> Result<(), error::LaboriError> {
+pub async fn log(
+    device_name: String,
+    table_name: String,
+    interval: f64,
+    mut rx: mpsc::Receiver<Vec<u8>>
+) -> Result<(), error::LaboriError> {
 
     let dbpath = format!("{}.db", device_name);
     if ! Path::new(&dbpath).exists() {
@@ -60,9 +66,10 @@ pub async fn log(device_name: String, table_name: String, mut rx: mpsc::Receiver
 
     // Insert atom parameters into the table
     let mut values = vec![];
-    let query_head = format!("INSERT INTO {} VALUES ", &table_name);
+    let query_head = format!("INSERT INTO '{}' VALUES ", &table_name);
 
     println!("Start logging");
+    let mut current_time = 0.0;
 
     while let Some(buff) = rx.recv().await {
 
@@ -84,7 +91,10 @@ pub async fn log(device_name: String, table_name: String, mut rx: mpsc::Receiver
         freqs_u8.split(|b| *b == 44u8)
             .map(|x| ASCII.decode(x, DecoderTrap::Replace).unwrap())
             .map(|x| x.parse::<f64>().unwrap())
-            .for_each(|x| values.push(format!("(0, {:?})", x)));
+            .for_each(|x| {
+              current_time += interval;
+              values.push(format!("({}, {}, {})", current_time, x, &freqs_u8.len()));
+            });
 
         println!("{:?}\r", values.len());
         // Insert to sqlite db if values length > 5000.

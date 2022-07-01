@@ -37,36 +37,19 @@ pub async fn connect(
 
         match cmd_obj {
             Command::Get { key: _ } => {
-                if let Err(e) = send_cmd(&stream, &cmd) {
-                    tx_to_server.send(
-                        Response::Failure(Failure::CommandNotSent(e.to_string()))
-                    ).await.unwrap();
-                }
-                match get_response(&stream) {
-                    Err(e) => tx_to_server.send(
-                        Response::Failure(Failure::MachineNotRespond(e.to_string()))
-                    ).await.unwrap(),
-                    Ok(res) => tx_to_server.send(
-                        Response::Success(Success::GotValue(res))
-                    ).await.unwrap(),
-                };
+                send_cmd(&stream, &tx_to_server, &cmd);
+                tx_to_server.send(
+                    get_response(&stream, tx_to_server).await
+                ).await.unwrap();
             },
             Command::Set { key: _, value: val } => {
-                if let Err(e) = send_cmd(&stream, &cmd) {
-                    tx_to_server.send(
-                        Response::Failure(Failure::CommandNotSent(e.to_string()))
-                    ).await.unwrap();
-                }
+                send_cmd(&stream, &tx_to_server, &cmd);
                 tx_to_server.send(
                     Response::Success(Success::SetValue(val))
                 ).await.unwrap();
             },
             Command::Run{} => {
-                if let Err(e) = send_cmd(&stream, &cmd) {
-                    tx_to_server.send(
-                        Response::Failure(Failure::CommandNotSent(e.to_string()))
-                    ).await.unwrap();
-                }
+                send_cmd(&stream, &tx_to_server, &cmd);
                 poll(&device_name, &stream, &tx_to_server, &mut rx_from_server).await;
             },
             Command::Stop{} => {
@@ -79,32 +62,35 @@ pub async fn connect(
     Ok(())
 }
 
-fn send_cmd(stream: &TcpStream, cmd: &str) -> Result<(), LaboriError> {
+async fn send_cmd(stream: &TcpStream, tx: &mpsc::Sender<Response>, cmd: &str) {
     let cmd_ba = ASCII.encode(cmd, EncoderTrap::Replace).unwrap();
     let mut writer = BufWriter::new(stream);
     match writer.write(&cmd_ba) {
         Ok(_) => println!("Sent query: {:?}", &cmd_ba),
-        Err(e) => return Err(LaboriError::TCPSendError(e.to_string()))
+        Err(e) => tx.send(
+            Response::Failure(Failure::CommandNotSent(e.to_string()))
+        ).await.unwrap(),
     }
     writer.flush().unwrap();
-    Ok(())
 }
 
-fn get_response(stream: &TcpStream) -> Result<String, LaboriError> {
+async fn get_response(stream: &TcpStream, tx: &mpsc::Sender<Response>) -> Response {
     let mut reader = BufReader::new(stream);
     let mut buff = vec![0; 1024];
-    let n = match reader.read(&mut buff) {
-        Ok(n) => n,
-        Err(e) => return Err(LaboriError::TCPReceiveError(e.to_string()))
-    };
-    let response_ba = &buff[0..n];
-    println!("Received response: {:?}", response_ba);
-    if response_ba.last() != Some(&10u8) {
-        return Err(LaboriError::TCPReceiveError("Broken message received".to_string()))
-    }
-    let response_ba = &response_ba[..response_ba.len()-1];
-    let response = ASCII.decode(response_ba, DecoderTrap::Replace).unwrap();
-    Ok(response)
+    match reader.read(&mut buff) {
+        Ok(n) => {
+            let response_ba = &buff[0..n];
+            println!("Received response: {:?}", response_ba);
+            if response_ba.last() != Some(&10u8) {
+                Response::Failure(Failure::InvalidReturn("No LF in the end of the response".to_string()))
+            } else {
+                let response_ba = &response_ba[..response_ba.len()-1];
+                let response = ASCII.decode(response_ba, DecoderTrap::Replace).unwrap();
+                Response::Success(Success::GotValue(response))
+            }
+        },
+        Err(e) => Response::Failure(Failure::MachineNotRespond(e.to_string())),
+    }    
 }
 
 async fn poll(
@@ -114,11 +100,16 @@ async fn poll(
     rx_from_server: &mut mpsc::Receiver<Command>,
   ) {
 
+    // Get interval value
+    let cmd = Command::Get { key: "Interval".to_string() }.into_cmd().unwrap();
+    send_cmd(&stream, &tx_to_server, &cmd);
+    let response = get_response(&stream, &tx_to_server);
+
     // Spawn logger
     let table_name = &Local::now().format("%Y-%m-%dT%H:%M:%S");
     let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
     let log_handle = tokio::spawn(
-        logger::log(device_name.to_string(), table_name.to_string(), rx_from_client)
+        logger::log(device_name.to_string(), table_name.to_string(), interval, rx_from_client)
     );
   
     // Prepare command bytes

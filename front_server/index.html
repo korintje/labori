@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <link rel="shortcut icon" href="/app/qcm/favicon.ico">
+  </head>
+  <body>
+
+    <div id="monitor" style="width:600px;height:250px;"></div>
+    <select id="history_select" size="10"></select>
+    <button id="read_button">Read</button>
+    <button id="unread_button">Unread</button>
+    <button id="get_interval">Get Interval</button>
+    <!-- <button id="set_interval">Set Interval</button> -->
+    <select id="interval_select">
+      <option value="10">10 sec</option>
+      <option value="1">1 sec</option>
+      <option value="0.1">100 msec</option>
+      <option value="0.01">10 msec</option>
+      <option value="0.001">1 msec</option>
+    </select>
+    <button id="run">Run</button>
+    <button id="stop">Stop</button>
+    <p id="socket">waiting...</p>
+    <p id="packet_count">packet: </p>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.12.1.min.js"></script>
+    <script src="/app/qcm/client.js"></script>
+
+  </body>
+</html>
