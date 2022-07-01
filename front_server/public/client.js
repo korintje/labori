@@ -20,7 +20,6 @@ let update_history = (socket) => {
   }
   socket.emit("get_tables", "", (tables) => {
     for (const table of tables) {
-      console.log(table);
       let option = document.createElement("option");
       option.value = table["name"];
       option.text = table["name"];
@@ -60,17 +59,13 @@ const socket = io();
 console.log("connected to the server");
 update_history(socket);
 socket.on("update_qcm", (data_str) => {
-    xs = [];
-    ys = [];
-    rs = [];
-    console.log(data_str);
     let data = JSON.parse(data_str);
     data.forEach(function(datum){
         xs.push(datum["time"]);
         ys.push(datum["freq"]);
         rs.push(datum["rate"]);
     });
-    Plotly.update(
+    Plotly.newPlot(
         MONITOR_VIEW,
         [{ x: xs, y: ys }],
         { margin: { t: 0 } }
@@ -124,8 +119,10 @@ socket.on('connect', function() {
     socket.emit("run", "", (response) => {
       console.log(response);
       let table_name = response["Success"]["SaveTable"];
-      console.log(table_name);
       indicator.innerHTML= table_name;
+      xs = [];
+      ys = [];
+      rs = [];
       socket.emit("loop", table_name);
     });
   });

@@ -80,7 +80,7 @@ io.on("connection", socket => {
 
   // Start SQL polling loop
   socket.on("loop", (table, callback)  => {
-    console.log("read SQL signal from : " + socket.id);
+    console.log("Read SQL signal from : " + socket.id);
     streaming = setInterval(() => {
       db.all(`select *, rowid from '${table}' where rowid>${last_rowid}`, (_err, data) => {
         let last_row = data[data.length - 1];
@@ -94,13 +94,6 @@ io.on("connection", socket => {
     }, SAMPLE_RATE);
     // callback("Read");
   });
-  
-  // Stop SQL polling loop
-  socket.on('unread', () => {
-    last_rowid = 0;
-    console.log('unread SQL signal from: ' + socket.id);
-    clearInterval(streaming);
-  });    
   
   // Get Interval
   socket.on('get_interval', (_arg, callback) => {
@@ -119,6 +112,8 @@ io.on("connection", socket => {
   
   // Stop measurement
   socket.on('stop', (_arg, callback) => {
+    console.log('unread SQL signal from: ' + socket.id);
+    clearInterval(streaming);
     path_through(callback, `{"Stop": {}}`);
   }); 
   
