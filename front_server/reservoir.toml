@@ -1,0 +1,2 @@
+web_url = "127.0.0.1:8080"
+db_path = "./db/reservoir.db"
