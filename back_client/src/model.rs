@@ -7,11 +7,6 @@ pub struct TableCount {
     pub count: i32,
 }
 
-#[derive(FromRow, Serialize)]
-pub struct Metadata {
-    pub xyzhash: u32,
-}
-
 const FUNC_VALUES: [&str; 12] = [
     "FINA", "FINB", "FINC", "FLIN", "PER", "DUTY",
     "PWID", "TINT", "FRAT", "TOT", "VPPA", "VPPB",
