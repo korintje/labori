@@ -137,7 +137,7 @@ async fn poll(
   
         let mut buff = vec![0; 1024];
         let n = reader.read(&mut buff).unwrap();
-        println!("{}\r", n);
+        // println!("{}\r", n);
         
         if n >= 2 {
             if let Err(e) = tx_to_logger.send(buff[..n].to_vec()).await {

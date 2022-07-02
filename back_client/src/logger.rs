@@ -108,7 +108,7 @@ pub async fn log(
         println!("{:?}\r", values.len());
         // Insert to sqlite db if values length > 5000.
         if values.len() >= dump_size {
-            println!("{:?}", &values);
+            // println!("{:?}", &values);
             let query = query_head.clone() + &values.join(", ");
             let _ = &conn.execute(sqlx::query(&query)).await?;
             values = vec![];

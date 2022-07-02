@@ -37,13 +37,17 @@ function setOption(selectElement, value) {
   });
 }
 
+let xs_live = [];
+let ys_live = [];
+let rs_live = [];
+
 let xs = [];
 let ys = [];
 let rs = [];
 
 Plotly.newPlot(
   MONITOR_VIEW,
-  [{ x: xs, y: ys }],
+  [{ x: xs_live, y: ys_live }],
   { margin: { t: 0 } }
 );
   
@@ -61,13 +65,13 @@ update_history(socket);
 socket.on("update_qcm", (data_str) => {
     let data = JSON.parse(data_str);
     data.forEach(function(datum){
-        xs.push(datum["time"]);
-        ys.push(datum["freq"]);
-        rs.push(datum["rate"]);
+        xs_live.push(datum["time"]);
+        ys_live.push(datum["freq"]);
+        rs_live.push(datum["rate"]);
     });
     Plotly.newPlot(
         MONITOR_VIEW,
-        [{ x: xs, y: ys }],
+        [{ x: xs_live, y: ys_live }],
         { margin: { t: 0 } }
     );
 });
@@ -120,9 +124,9 @@ socket.on('connect', function() {
       console.log(response);
       let table_name = response["Success"]["SaveTable"];
       indicator.innerHTML= table_name;
-      xs = [];
-      ys = [];
-      rs = [];
+      xs_live = [];
+      ys_live = [];
+      rs_live = [];
       socket.emit("loop", table_name);
     });
   });
