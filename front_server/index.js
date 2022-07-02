@@ -1,3 +1,4 @@
+// Import mudules
 const app  = require("express")();
 const express = require("express");
 const http = require("http").Server(app);
@@ -5,63 +6,91 @@ const io = require("socket.io")(http);
 const sqlite3 = require("sqlite3");
 const net = require('net');
 
-/* Non-blocking setting loading 
-const fs = require("fs");
-const toml = require("toml");
-let CONFIG = {};
-fs.readFile("./config.toml", "utf-8", (err, obj) => {
-  const c = toml.parse(obj);
-  CONFIG.TCP_PORT = c.TCP_client.port;
-  CONFIG.WS_PORT = c.WS_server.port;
-  CONFIG.SAMPLE_RATE = c.database.sampling_rate;
-});
-*/
+// Global constants
 TCP_PORT = 50001;
 WS_PORT = 3000;
 SAMPLE_RATE = 100;
 
-// Set DB connection
+// Global variable
+let streaming;
+let last_rowid = 0;
+
+// Database connection
 const db = new sqlite3.Database("../back_client/Iwatsu.db");
 
-// Pass response from back client to websocket client
-const path_through = (callback, cmd) => {
+// Return index.html and static files directory path
+app.get('/app/qcm', (_, res) => { res.sendFile(__dirname + '/index.html'); });
+app.use('/app/qcm', express.static(__dirname + "/public"));
+
+// Listen websocket port
+http.listen(WS_PORT, function(){
+  console.log(`listening on *:${WS_PORT}`);
+});
+
+// Be a client of TCP server
+const connect_TCP = (cmd) => {
   const client = net.connect(TCP_PORT, 'localhost', () => {
     console.log('connected to TCP server');
     client.write(cmd);
   });
+  return client;
+};
+
+// Pass response from back client to websocket client
+const path_through = (callback, cmd) => {
+  const client = connect_TCP(cmd);
   client.on('data', data => {
-    console.log('client-> ' + data);
+    console.log('Received from TCP server: ' + data);
     callback(JSON.parse(data));
   });  
 };
 
-// Work as TCP client
-const tcp_client = net.connect(TCP_PORT, 'localhost', () => {
-  console.log('connected to TCP server');
-  tcp_client.write(String.raw`{"Get": {"key": "Interval"}}`);
-});
+// Check wheather polling process is running
+const check_run = (socket) => {
+  const client = connect_TCP(`{"Get": {"key": "Interval"}}`);
+  client.on('data', data => {
+    console.log('Received from TCP server: ' + data);
+    const json_data = JSON.parse(data);
+    if ("Success" in json_data) {
+      const interval = json_data["Success"]["GotValue"];
+      socket.emit("got_interval", interval);
+      clearInterval(streaming);
+    } else if ("Failure" in json_data) {
+      const table_name = json_data["Failure"]["Busy"];
+      last_rowid = 0;
+      streaming = setInterval(
+        () => { stream(socket, table_name); }, SAMPLE_RATE
+      );
+    }
+  });  
+};
 
-tcp_client.on('data', data => {
-  console.log('client-> ' + data);
-  // tcp_client.destroy();
-});
+// Stream data from given database
+const stream = (socket, table_name) => {
+  db.all(`select *, rowid from '${table_name}' where rowid>${last_rowid}`, (_e, data) => {
+    let last_row = data[data.length - 1];
+    if (last_row !== undefined) {
+      last_rowid = last_row["rowid"];
+      socket.emit("update_monitor", data);
+    }
+  });
+};
 
-tcp_client.on('close', () => {
-  console.log('client-> connection is closed');
-});
+// Get table list from DB
+const get_tables = (socket) => {
+  db.all("select name from sqlite_master where type='table'", function (_e, tables) {
+    socket.emit("update_table_list", tables);
+  });
+};
 
-// Return index.html and static files directory path
-app.get('/app/qcm', function(req, res){
-  res.sendFile(__dirname + '/index.html');
-});
-app.use('/app/qcm', express.static(__dirname + "/public"));
 
 // Client connection event
-io.on("connection", socket => {
+io.on("connection", (socket) => {
 
-  let streaming;
+  // Check run and interval
   console.log("a client connected")
-  let last_rowid = 0;
+  check_run(socket);
+  get_tables(socket);
 
   // Reset last Row ID if client disconnected
   socket.on("disconnect", () => {
@@ -69,32 +98,15 @@ io.on("connection", socket => {
     console.log("client disconnected")
   });
 
-  // Read history
-  socket.on("read", (table, callback)  => {
+  // Read database
+  socket.on("read_db", (table, callback)  => {
     console.log(`select * from '${table}'`);
     db.all(`select * from '${table}'`, (_err, data) => {
       console.log(`${data.length} data has sent.`);
       callback(data);
     });
-  });  
-
-  // Start SQL polling loop
-  socket.on("loop", (table, callback)  => {
-    console.log("Read SQL signal from : " + socket.id);
-    streaming = setInterval(() => {
-      db.all(`select *, rowid from '${table}' where rowid>${last_rowid}`, (_err, data) => {
-        let last_row = data[data.length - 1];
-        if (last_row !== undefined) {
-          last_rowid = last_row["rowid"];
-          data_str = JSON.stringify(data);
-          socket.emit("update_qcm", data_str);
-          socket.emit('packet_count');
-        }
-      });
-    }, SAMPLE_RATE);
-    // callback("Read");
   });
-  
+
   // Get Interval
   socket.on('get_interval', (_arg, callback) => {
     path_through(callback, `{"Get": {"key": "Interval"}}`);
@@ -108,31 +120,16 @@ io.on("connection", socket => {
   // Run measurement
   socket.on('run', (_arg, callback) => {
     path_through(callback, `{"Run": {}}`);
-  }); 
-  
-  // Stop measurement
-  socket.on('stop', (_arg, callback) => {
-    console.log('Stop signal from: ' + socket.id);
-    clearInterval(streaming);
-    path_through(callback, `{"Stop": {}}`);
-  }); 
-  
-  // Get table list from DB
-  socket.on('get_tables', (_arg, callback) => {
-    db.serialize(function () {
-      db.all("select name from sqlite_master where type='table'", function (err, tables) {
-        callback(tables);
-      });
-    });
+    check_run(socket);
+    get_tables(socket);
   });
 
+  // Stop measurement
+  socket.on('stop', (_arg, callback) => {
+    // clearInterval(streaming);
+    path_through(callback, `{"Stop": {}}`);
+    check_run(socket);
+    get_tables(socket);
+  });  
+
 });
-
-// Listen at 127.0.0.1:3000
-http.listen(WS_PORT, function(){
-  console.log(`listening on *:${WS_PORT}`);
-});
-
-
-
-
