@@ -112,7 +112,7 @@ io.on("connection", socket => {
   
   // Stop measurement
   socket.on('stop', (_arg, callback) => {
-    console.log('unread SQL signal from: ' + socket.id);
+    console.log('Stop signal from: ' + socket.id);
     clearInterval(streaming);
     path_through(callback, `{"Stop": {}}`);
   }); 

@@ -1,8 +1,8 @@
 const MONITOR_VIEW = document.getElementById('monitor');
 const HISTORY_VIEW = document.getElementById('history');
 const indicator = document.getElementById("socket");
-const start_time = document.getElementById("start_time");
-const counter = document.getElementById("packet_count");
+/* const start_time = document.getElementById("start_time"); */
+/* const counter = document.getElementById("packet_count"); */
 /* const read_button = document.getElementById("read_button"); */
 /* const unread_button = document.getElementById("unread_button"); */
 const get_interval_button = document.getElementById("get_interval");
@@ -13,6 +13,14 @@ const run_button = document.getElementById("run");
 const stop_button = document.getElementById("stop");
 const history_select = document.getElementById("history_select");
 const history_options = document.getElementById("history_select");
+
+let layout = {
+  title: 'QCM monitor',
+  xaxis: { title: 'time / sec', automargin: true },
+  yaxis: { title: 'frequency / Hz', automargin: true },
+  margin: { t: 96 }
+};
+let config = { responsive: true };
 
 let update_history = (socket) => {
   for (var i=0; i<history_select.length; i++) {
@@ -37,26 +45,10 @@ function setOption(selectElement, value) {
   });
 }
 
-let xs_live = [];
-let ys_live = [];
-let rs_live = [];
-
-let xs = [];
-let ys = [];
-let rs = [];
-
-Plotly.newPlot(
-  MONITOR_VIEW,
-  [{ x: xs_live, y: ys_live }],
-  { margin: { t: 0 } }
-);
-  
-
-Plotly.newPlot(
-  HISTORY_VIEW,
-  [{ x: xs, y: ys }],
-  { margin: { t: 0 } }
-);
+let xs_live = ys_live = rs_live = [];
+let xs = ys = rs = [];
+Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
+Plotly.newPlot( HISTORY_VIEW, [{ x: xs, y: ys }], layout, config );
 
 // Server connection event
 const socket = io();
@@ -69,11 +61,8 @@ socket.on("update_qcm", (data_str) => {
         ys_live.push(datum["freq"]);
         rs_live.push(datum["rate"]);
     });
-    Plotly.newPlot(
-        MONITOR_VIEW,
-        [{ x: xs_live, y: ys_live }],
-        { margin: { t: 0 } }
-    );
+    layout.title = "Transfer rate: " + rs_live[rs_live.length - 1];
+    Plotly.newPlot(MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
 });
 socket.on("disconnect", () => {
     console.log("disconnected from server")
@@ -81,7 +70,9 @@ socket.on("disconnect", () => {
 
 let count;
 socket.on('connect', function() {
-  count = 0;
+  
+  // count = 0;
+  
   indicator.innerHTML= "connected";
   
   get_interval_button.addEventListener("click", () => {
@@ -111,11 +102,8 @@ socket.on('connect', function() {
         ys.push(datum["freq"]);
         rs.push(datum["rate"]);
       });
-      Plotly.newPlot(
-        HISTORY_VIEW,
-        [{ x: xs, y: ys }],
-        { margin: { t: 0 } }
-      );
+      layout.title = table;
+      Plotly.newPlot(HISTORY_VIEW, [{ x: xs, y: ys }], layout, config);
     });
   });
   
@@ -123,7 +111,6 @@ socket.on('connect', function() {
     socket.emit("run", "", (response) => {
       console.log(response);
       let table_name = response["Success"]["SaveTable"];
-      indicator.innerHTML= table_name;
       xs_live = [];
       ys_live = [];
       rs_live = [];
@@ -139,7 +126,9 @@ socket.on('connect', function() {
 
 });
 
+/*
 socket.on('packet_count', function() {
   count++;
   counter.innerHTML = "packet counter: " + count;
 });
+*/
