@@ -13,6 +13,8 @@ const run_button = document.getElementById("run");
 const stop_button = document.getElementById("stop");
 const history_select = document.getElementById("history_select");
 const history_options = document.getElementById("history_select");
+const save_button_run = document.getElementById("save_csv_run");
+const save_button_history = document.getElementById("save_csv_history");
 
 let layout = {
   title: 'QCM monitor',
@@ -71,7 +73,17 @@ socket.on("disconnect", () => {
 let count;
 socket.on('connect', function() {
   
-  // count = 0;
+  // Get Interval or current running DB
+  socket.emit("get_interval", "", (response) => {
+    console.log(response);
+    if ("Success" in response) {
+      let interval = response["Success"]["GotValue"];
+      setOption(interval_select, interval);
+    } else if ("Failure" in response) {
+      let table_name = response["Failure"]["Busy"];
+      
+    }
+  });
   
   indicator.innerHTML= "connected";
   
@@ -122,6 +134,20 @@ socket.on('connect', function() {
     socket.emit("stop", "", (response) => {
       console.log(response);
     });
+  });
+
+  save_button_run.addEventListener("click", () => {
+    socket.emit("save", "", (response) => {
+      console.log(response);
+    })
+  });
+
+  save_button_history.addEventListener("click", () => {
+    let index = history_select.selectedIndex;
+    let table = history_options[index].value;
+    socket.emit("save", table, (response) => {
+      console.log(response);
+    })
   });
 
 });

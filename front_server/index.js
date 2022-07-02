@@ -124,7 +124,7 @@ io.on("connection", socket => {
         callback(tables);
       });
     });
-  }); 
+  });
 
 });
 

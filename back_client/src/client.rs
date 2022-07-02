@@ -167,9 +167,7 @@ async fn poll(
                         break
                     },
                     _ => tx_to_server.send(
-                        Response::Failure(Failure::Busy(
-                            "Measurement already running".to_string()
-                        ))
+                        Response::Failure(Failure::Busy(table_name.to_string()))
                     ).await.unwrap()
                 } 
             },
