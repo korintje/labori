@@ -57,13 +57,14 @@ pub async fn log(
     mut rx: mpsc::Receiver<Vec<u8>>
 ) -> Result<(), error::LaboriError> {
     
-    let mut dump_size = 5000;
+    // Determine batch size for SQL insertion
+    let batch_size;
     if interval <= 0.001 {
-        dump_size = 100;        
+        batch_size = 100;        
     } else if interval <= 0.01 {
-        dump_size = 10;
+        batch_size = 10;
     } else {
-        dump_size = 1;
+        batch_size = 1;
     }
 
     let dbpath = format!("{}.db", device_name);
@@ -105,9 +106,9 @@ pub async fn log(
               values.push(format!("({}, {}, {})", current_time, x, &freqs_u8.len()));
             });
 
-        println!("{:?}\r", values.len());
+        // println!("{:?}\r", values.len());
         // Insert to sqlite db if values length > 5000.
-        if values.len() >= dump_size {
+        if values.len() >= batch_size {
             // println!("{:?}", &values);
             let query = query_head.clone() + &values.join(", ");
             let _ = &conn.execute(sqlx::query(&query)).await?;
