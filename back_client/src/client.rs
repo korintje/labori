@@ -108,12 +108,23 @@ async fn poll(
         Response::Success(Success::GotValue(val)) => val,
         _ => panic!("Could not to get interval value from machine"),
     };
+    let interval = interval.parse().unwrap();
+
+    // Determine polling duration
+    let polling_duration;
+    if interval <= 0.01 {
+        polling_duration = 10;        
+    } else if interval <= 1.0 {
+        polling_duration = 100;
+    } else {
+        polling_duration = 1000;
+    }    
 
     // Spawn logger
     let table_name = &Local::now().format("%Y-%m-%dT%H:%M:%S");
     let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
     let log_handle = tokio::spawn(
-        logger::log(device_name.to_string(), table_name.to_string(), interval.parse().unwrap(), rx_from_client)
+        logger::log(device_name.to_string(), table_name.to_string(), interval, rx_from_client)
     );
   
     // Prepare command bytes
@@ -164,7 +175,7 @@ async fn poll(
             },
             Err(_) => (),
         }
-        sleep(Duration::from_millis(10)).await
+        sleep(Duration::from_millis(polling_duration)).await
         
     }
 
