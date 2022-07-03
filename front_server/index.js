@@ -11,10 +11,6 @@ TCP_PORT = 50001;
 WS_PORT = 3000;
 SAMPLE_RATE = 100;
 
-// Global variable
-let streaming;
-let last_rowid = 0;
-
 // Database connection
 const db = new sqlite3.Database("../back_client/Iwatsu.db");
 
@@ -46,31 +42,31 @@ const path_through = (callback, cmd) => {
 };
 
 // Check wheather polling process is running
-const check_run = (socket) => {
+const check_run = (socket, state) => {
   const client = connect_TCP(`{"Get": {"key": "Interval"}}`);
   client.on('data', data => {
     console.log('Received from TCP server: ' + data);
     const json_data = JSON.parse(data);
     if ("Success" in json_data) {
       const interval = json_data["Success"]["GotValue"];
-      socket.emit("got_interval", interval);
-      clearInterval(streaming);
+      socket.emit("update_interval", interval);
+      clearInterval(state["streaming"]);
     } else if ("Failure" in json_data) {
       const table_name = json_data["Failure"]["Busy"];
-      last_rowid = 0;
-      streaming = setInterval(
-        () => { stream(socket, table_name); }, SAMPLE_RATE
+      state["last_rowid"] = 0;
+      state["streaming"] = setInterval(
+        () => { stream(socket, table_name, state); }, SAMPLE_RATE
       );
     }
   });  
 };
 
 // Stream data from given database
-const stream = (socket, table_name) => {
-  db.all(`select *, rowid from '${table_name}' where rowid>${last_rowid}`, (_e, data) => {
+const stream = (socket, table_name, state) => {
+  db.all(`select *, rowid from '${table_name}' where rowid>${state["last_rowid"]}`, (_e, data) => {
     let last_row = data[data.length - 1];
     if (last_row !== undefined) {
-      last_rowid = last_row["rowid"];
+      state["last_rowid"] = last_row["rowid"];
       socket.emit("update_monitor", data);
     }
   });
@@ -87,14 +83,17 @@ const get_tables = (socket) => {
 // Client connection event
 io.on("connection", (socket) => {
 
+  // Streaming state
+  let state = {"streaming": () => {}, "last_rowid": 0,}
+
   // Check run and interval
   console.log("a client connected")
-  check_run(socket);
+  check_run(socket, state);
   get_tables(socket);
 
   // Reset last Row ID if client disconnected
   socket.on("disconnect", () => {
-    last_rowid = 0;
+    state["last_rowid"] = 0;
     console.log("client disconnected")
   });
 
@@ -120,7 +119,7 @@ io.on("connection", (socket) => {
   // Run measurement
   socket.on('run', (_arg, callback) => {
     path_through(callback, `{"Run": {}}`);
-    check_run(socket);
+    check_run(socket, state);
     get_tables(socket);
   });
 
@@ -128,7 +127,7 @@ io.on("connection", (socket) => {
   socket.on('stop', (_arg, callback) => {
     // clearInterval(streaming);
     path_through(callback, `{"Stop": {}}`);
-    check_run(socket);
+    check_run(socket, state);
     get_tables(socket);
   });  
 

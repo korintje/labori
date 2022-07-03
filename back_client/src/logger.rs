@@ -56,6 +56,8 @@ pub async fn log(
     interval: f64,
     mut rx: mpsc::Receiver<Vec<u8>>
 ) -> Result<(), error::LaboriError> {
+
+    // println!("{:?}", interval);
     
     // Determine batch size for SQL insertion
     let batch_size;

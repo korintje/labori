@@ -22,6 +22,37 @@ function setOption(selectElement, value) {
   });
 }
 
+// General function to use "zip" in JavaScript
+function* zip(...args) {
+  const length = args[0].length;
+  for (let arr of args) {
+      if (arr.length !== length){
+          throw "Lengths of arrays are not eqaul.";
+      }
+  } 
+  for (let index = 0; index < length; index++) {
+      let elms = [];
+      for (arr of args) {
+          elms.push(arr[index]);
+      }
+      yield elms;
+  }
+}
+
+// Function to download file
+function download_csv(xs, ys, table_name) {
+  let content = "time(sec),frequency(Hz)\n";
+  for (let [x, y] of zip(xs, ys)) {
+    content += `${x},${y}\n`;
+  }
+  const blob = new Blob([ content ], { "type" : "text/csv" });
+  const link = document.createElement("a");
+  link.download = `${table_name}.csv`;
+  link.href = URL.createObjectURL(blob);
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 // Plotly parameters
 let layout = {
   title: 'QCM monitor',
@@ -30,8 +61,12 @@ let layout = {
   margin: { t: 96 }
 };
 const config = { responsive: true };
-let xs_live = ys_live = rs_live = [];
-let xs = ys = rs = [];
+let xs_live = [];
+let ys_live = []
+let rs_live = [];
+let xs = [];
+let ys = [];
+let rs = [];
 Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
 Plotly.newPlot( HISTORY_VIEW, [{ x: xs, y: ys }], layout, config );
 
@@ -59,14 +94,20 @@ socket.on("update_table_list", (tables) => {
 
 // Update monitor view
 socket.on("update_monitor", (data) => {
-    console.log(data);
-    data.forEach(function(datum){
-        xs_live.push(datum["time"]);
-        ys_live.push(datum["freq"]);
-        rs_live.push(datum["rate"]);
-    });
-    layout.title = "Transfer rate: " + rs_live[rs_live.length - 1];
-    Plotly.newPlot(MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
+  console.log(data);
+  console.log(xs_live);
+  data.forEach(function(datum){
+    xs_live.push(datum["time"]);
+    ys_live.push(datum["freq"]);
+    rs_live.push(datum["rate"]);
+  });
+  layout.title = "Transfer rate: " + rs_live[rs_live.length - 1];
+  Plotly.newPlot(MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
+});
+
+// Update ineterval select
+socket.on("update_interval", (interval) => {
+  setOption(interval_select, interval)
 });
 
 // Socket connection event
@@ -130,18 +171,14 @@ socket.on('connect', function() {
 
   // Save button for monitor
   save_button_run.addEventListener("click", () => {
-    socket.emit("save", "", (response) => {
-      console.log(response);
-    })
+    download_csv(xs_live, ys_live, "current_run");
   });
 
   // Save button for table list
   save_button_history.addEventListener("click", () => {
     let index = history_select.selectedIndex;
-    let table = history_options[index].value;
-    socket.emit("save", table, (response) => {
-      console.log(response);
-    })
+    let table_name = history_options[index].value;
+    download_csv(xs, ys, table_name);
   });
 
 });

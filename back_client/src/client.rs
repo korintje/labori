@@ -7,7 +7,10 @@ use tokio::sync::mpsc;
 use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
-use tokio::time::{sleep, Duration};
+// use tokio::time;
+// use tokio::time::{sleep, Duration};
+// use tokio::time::{interval, Duration};
+// use std::{thread, time};
 use chrono::Local;
 
 pub async fn connect(
@@ -111,14 +114,19 @@ async fn poll(
     let interval = interval.parse().unwrap();
 
     // Determine polling duration
-    let polling_duration;
+    let duration;
     if interval <= 0.01 {
-        polling_duration = 10;        
+        duration = 100;        
+    } else if interval <= 0.1 {
+        duration = 110;
     } else if interval <= 1.0 {
-        polling_duration = 10;
+        duration = 1100;
     } else {
-        polling_duration = 10;
-    }    
+        duration = 11000;
+    }
+    let mut polling_interval = tokio::time::interval(
+        tokio::time::Duration::from_millis(duration)
+    );
 
     // Spawn logger
     let table_name = &Local::now().format("%Y-%m-%dT%H:%M:%S");
@@ -142,7 +150,7 @@ async fn poll(
     
     // Data polling loop
     loop {
-  
+
         writer.write(&polling_cmd).unwrap();
         writer.flush().unwrap();
   
@@ -173,8 +181,11 @@ async fn poll(
             },
             Err(_) => (),
         }
-        sleep(Duration::from_millis(polling_duration)).await;
-        
+
+        // println!("Before {:?} msec duration", duration);
+        polling_interval.tick().await;
+        // println!("After {:?} msec duration", duration);
+
     }
 
     if let Err(e) = log_handle.await.unwrap() {
