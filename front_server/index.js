@@ -101,8 +101,10 @@ io.on("connection", (socket) => {
   socket.on("read_db", (table, callback)  => {
     console.log(`select * from '${table}'`);
     db.all(`select * from '${table}'`, (_err, data) => {
-      console.log(`${data.length} data has sent.`);
-      callback(data);
+      if (data !== undefined) {
+        console.log(`${data.length} data has sent.`);
+        callback(data);
+      }
     });
   });
 
@@ -118,6 +120,7 @@ io.on("connection", (socket) => {
   
   // Run measurement
   socket.on('run', (_arg, callback) => {
+    // socket.broadcast.emit('init_monitor');
     path_through(callback, `{"Run": {}}`);
     check_run(socket, state);
     get_tables(socket);
@@ -125,10 +128,26 @@ io.on("connection", (socket) => {
 
   // Stop measurement
   socket.on('stop', (_arg, callback) => {
-    // clearInterval(streaming);
     path_through(callback, `{"Stop": {}}`);
     check_run(socket, state);
     get_tables(socket);
   });  
+
+  // Remove table
+  socket.on('remove', (table_name, callback) => {
+    db.run(`drop table if exists '${table_name}'`);
+    get_tables(socket);
+    callback(JSON.parse(`{"TableRemoved": "${table_name}"}`));
+    console.log(`Table "${table_name}" removed`);
+  });
+
+  /*
+  // Update state
+  socket.on('update', (_arg, callback) => {
+    check_run(socket, state);
+    get_tables(socket);
+    callback(`{"Update": {}}`);
+  });
+  */ 
 
 });

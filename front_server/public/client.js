@@ -2,7 +2,7 @@
 const MONITOR_VIEW = document.getElementById('monitor');
 const HISTORY_VIEW = document.getElementById('history');
 const indicator = document.getElementById("socket");
-const get_interval_button = document.getElementById("get_interval");
+/* const get_interval_button = document.getElementById("get_interval"); */
 const interval_select = document.getElementById("interval_select");
 const interval_options = document.querySelectorAll("#interval_select option");
 const run_button = document.getElementById("run");
@@ -11,6 +11,7 @@ const history_select = document.getElementById("history_select");
 const history_options = document.getElementById("history_select");
 const save_button_run = document.getElementById("save_csv_run");
 const save_button_history = document.getElementById("save_csv_history");
+const remove_button = document.getElementById("remove");
 
 // General function to set options
 function setOption(selectElement, value) {
@@ -39,6 +40,14 @@ function* zip(...args) {
   }
 }
 
+// General function to remove all options in a select
+function removeOptions(selectElement) {
+  var i, L = selectElement.options.length - 1;
+  for(i = L; i >= 0; i--) {
+     selectElement.remove(i);
+  }
+}
+
 // Function to download file
 function download_csv(xs, ys, table_name) {
   let content = "time(sec),frequency(Hz)\n";
@@ -62,7 +71,7 @@ let layout = {
 };
 const config = { responsive: true };
 let xs_live = [];
-let ys_live = []
+let ys_live = [];
 let rs_live = [];
 let xs = [];
 let ys = [];
@@ -71,7 +80,7 @@ Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
 Plotly.newPlot( HISTORY_VIEW, [{ x: xs, y: ys }], layout, config );
 
 // Define socket
-const socket = io();
+const socket = io({reconnection: false});
 
 // Socket disconnection event
 socket.on("disconnect", () => {
@@ -81,9 +90,8 @@ socket.on("disconnect", () => {
 
 // Update table list
 socket.on("update_table_list", (tables) => {
-  for (var i=0; i<history_select.length; i++) {
-    history_select.remove(i);
-  }
+  removeOptions(history_select);
+  console.log(tables);
   for (const table of tables) {
     const option = document.createElement("option");
     option.value = table["name"];
@@ -92,10 +100,21 @@ socket.on("update_table_list", (tables) => {
   }
 });
 
+// Initialize monitor view
+socket.on("init_monitor", () => {
+  xs_live = [];
+  ys_live = [];
+  rs_live = [];
+  /*
+  socket.emit("update", "", (response) => {
+    console.log(response);
+  });
+  */
+});
+
 // Update monitor view
 socket.on("update_monitor", (data) => {
-  console.log(data);
-  console.log(xs_live);
+  // console.log(data);
   data.forEach(function(datum){
     xs_live.push(datum["time"]);
     ys_live.push(datum["freq"]);
@@ -113,16 +132,15 @@ socket.on("update_interval", (interval) => {
 // Socket connection event
 socket.on('connect', function() {
 
+  // Initialize graph and data
+  xs_live = [];
+  ys_live = [];
+  rs_live = [];
+  Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
+
   // Show connected
   console.log("connected to server");
   indicator.innerHTML= "connected";
-  
-  // Get interval button
-  get_interval_button.addEventListener("click", () => {
-    socket.emit("get_interval", "", (response) => {
-      console.log(response);
-    });
-  });
 
   // Interval select
   interval_select.addEventListener("change", () => {
@@ -138,7 +156,7 @@ socket.on('connect', function() {
     let index = history_select.selectedIndex;
     let table = history_options[index].value;
     socket.emit("read_db", table, (data) => {
-      console.log(`${data.length} data has received.`);
+      console.log(`${data.length} data received.`);
       xs = [];
       ys = [];
       rs = [];
@@ -178,7 +196,28 @@ socket.on('connect', function() {
   save_button_history.addEventListener("click", () => {
     let index = history_select.selectedIndex;
     let table_name = history_options[index].value;
+    table_name = table_name.replaceAll(":", "-");
     download_csv(xs, ys, table_name);
   });
+
+  // Remove button
+  remove_button.addEventListener("click", () => {
+    let index = history_select.selectedIndex;
+    let table_name = history_options[index].value;
+    if(window.confirm(`Are you sure to remove ${table_name}？`)){
+      socket.emit("remove", table_name, (response) => {
+        console.log(response);
+      });
+    }
+  }); 
+
+  // Get interval button
+  /*
+  get_interval_button.addEventListener("click", () => {
+    socket.emit("get_interval", "", (response) => {
+      console.log(response);
+    });
+  });
+  */
 
 });
