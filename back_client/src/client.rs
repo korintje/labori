@@ -115,9 +115,9 @@ async fn poll(
     if interval <= 0.01 {
         polling_duration = 10;        
     } else if interval <= 1.0 {
-        polling_duration = 100;
+        polling_duration = 10;
     } else {
-        polling_duration = 1000;
+        polling_duration = 10;
     }    
 
     // Spawn logger
@@ -173,7 +173,7 @@ async fn poll(
             },
             Err(_) => (),
         }
-        sleep(Duration::from_millis(polling_duration)).await
+        sleep(Duration::from_millis(polling_duration)).await;
         
     }
 
