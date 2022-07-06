@@ -50,7 +50,7 @@ const check_run = (socket, state) => {
     if ("Success" in json_data) {
       const interval = json_data["Success"]["GotValue"];
       socket.emit("update_interval", interval);
-      clearInterval(state["streaming"]);
+      // clearInterval(state["streaming"]);
     } else if ("Failure" in json_data) {
       const table_name = json_data["Failure"]["Busy"];
       state["last_rowid"] = 0;
@@ -61,13 +61,28 @@ const check_run = (socket, state) => {
   });  
 };
 
+//  Get and update interval value
+const get_and_update_interval = (socket) => {
+  const client = connect_TCP(`{"Get": {"key": "Interval"}}`);
+  client.on('data', data => {
+    console.log('Received from TCP server: ' + data);
+    const json_data = JSON.parse(data);
+    if ("Success" in json_data) {
+      const interval = json_data["Success"]["GotValue"];
+      socket.emit("update_interval", interval);
+    }
+  }); 
+}
+
 // Stream data from given database
 const stream = (socket, table_name, state) => {
   db.all(`select *, rowid from '${table_name}' where rowid>${state["last_rowid"]}`, (_e, data) => {
-    let last_row = data[data.length - 1];
-    if (last_row !== undefined) {
-      state["last_rowid"] = last_row["rowid"];
-      socket.emit("update_monitor", data);
+    if (data !== undefined) {
+      let last_row = data[data.length - 1];
+      if (last_row !== undefined) {
+        state["last_rowid"] = last_row["rowid"];
+        socket.emit("update_monitor", data);
+      }
     }
   });
 };
@@ -121,15 +136,39 @@ io.on("connection", (socket) => {
   // Run measurement
   socket.on('run', (_arg, callback) => {
     // socket.broadcast.emit('init_monitor');
-    path_through(callback, `{"Run": {}}`);
-    check_run(socket, state);
+    const client = connect_TCP(`{"Run": {}}`);
+    client.on('data', data => {
+      console.log('Received from TCP server: ' + data);
+      const json_data = JSON.parse(data);
+      if ("Success" in json_data) {
+        const table_name = json_data["Success"]["SaveTable"];
+        state["last_rowid"] = 0;
+        state["streaming"] = setInterval(
+          () => { stream(socket, table_name, state); }, SAMPLE_RATE
+        );
+      } else if ("Failure" in json_data) {
+        ;
+      }
+      callback(json_data);
+    });
     get_tables(socket);
   });
 
   // Stop measurement
   socket.on('stop', (_arg, callback) => {
-    path_through(callback, `{"Stop": {}}`);
-    check_run(socket, state);
+    const client = connect_TCP(`{"Stop": {}}`);
+    client.on('data', data => {
+      console.log('Received from TCP server: ' + data);
+      const json_data = JSON.parse(data);
+      if ("Success" in json_data) {
+        state["last_rowid"] = 0;
+        clearInterval(state["streaming"]);
+        get_and_update_interval(socket);
+      } else if ("Failure" in json_data) {
+        ;
+      }
+      callback(json_data);
+    });
     get_tables(socket);
   });  
 

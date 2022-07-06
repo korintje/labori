@@ -74,7 +74,10 @@ async fn send_cmd(stream: &TcpStream, tx: &mpsc::Sender<Response>, cmd: &str) {
             Response::Failure(Failure::CommandNotSent(e.to_string()))
         ).await.unwrap(),
     }
-    writer.flush().unwrap();
+    match writer.flush() {
+        Ok(_) => (),
+        Err(_) => (),
+    };
 }
 
 async fn get_response(stream: &TcpStream) -> Response {
@@ -115,7 +118,9 @@ async fn poll(
 
     // Determine polling duration
     let duration;
-    if interval <= 0.01 {
+    if interval <= 0.001 {
+        duration = 10;
+    } else if interval <= 0.01 {
         duration = 100;        
     } else if interval <= 0.1 {
         duration = 110;

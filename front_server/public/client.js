@@ -120,7 +120,8 @@ socket.on("update_monitor", (data) => {
     ys_live.push(datum["freq"]);
     rs_live.push(datum["rate"]);
   });
-  layout.title = "Transfer rate: " + rs_live[rs_live.length - 1];
+  const sent_byte_amount = rs_live[rs_live.length - 1];
+  layout.title = `Network occupancy: ${sent_byte_amount} / 1024`; 
   Plotly.newPlot(MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
 });
 
@@ -172,11 +173,18 @@ socket.on('connect', function() {
 
   // Run button
   run_button.addEventListener("click", () => {
+    let index = interval_select.selectedIndex;
+    let interval = interval_options[index].value;
+    socket.emit("set_interval", interval, (response) => {
+      console.log(response);
+    });
     socket.emit("run", "", (response) => {
       console.log(response);
-      xs_live = [];
-      ys_live = [];
-      rs_live = [];
+      if ("Success" in response) {
+        xs_live = [];
+        ys_live = [];
+        rs_live = [];
+      }
     });
   });
 
