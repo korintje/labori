@@ -105,3 +105,6 @@ pub enum Failure {
     SignalFailed(String),
 }
 
+pub struct ConnectionState {
+    pub alive: bool,
+}
