@@ -92,7 +92,7 @@ pub enum Success {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Failure {
-    Busy(String),
+    Busy{table_name: String, interval: String},
     NotRunning(String),
     ErrorInRunning(String),
     InvalidRequest(String),
@@ -103,6 +103,21 @@ pub enum Failure {
     SaveDataFailed(String),
     MachineNotRespond(String),
     SignalFailed(String),
+    SendToFrontFailed(String),
+}
+
+impl From<&LaboriError> for Failure {
+    fn from(from: &LaboriError) -> Failure {
+        use LaboriError::*;
+        use Failure::*;
+        match from {
+            TCPConnectionError(s) => MachineNotRespond(s.to_string()),       
+            SQLError(s) => SaveDataFailed(s.to_string()),
+            CommandParseError(s) => InvalidRequest(s.to_string()),
+            APISendError(s) => SendToFrontFailed(s.to_string()),
+            // LaboriError::InvalidReturn(s) => Failure::InvalidReturn(s.to_string()),
+        }
+    }
 }
 
 pub struct ConnectionState {

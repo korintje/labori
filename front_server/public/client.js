@@ -158,14 +158,15 @@ socket.on('connect', function() {
     let table = history_options[index].value;
     socket.emit("read_db", table, (data) => {
       console.log(`${data.length} data received.`);
-      xs = [];
-      ys = [];
-      rs = [];
-      data.forEach(function(datum){
-        xs.push(datum["time"]);
-        ys.push(datum["freq"]);
-        rs.push(datum["rate"]);
-      });
+      console.log(data);
+      xs = data[0];
+      ys = data[1];
+      // rs = [];
+      // data.forEach(function(datum){
+      //   xs.push(datum["time"]);
+      //   ys.push(datum["freq"]);
+      //   rs.push(datum["rate"]);
+      // });
       layout.title = table;
       Plotly.newPlot(HISTORY_VIEW, [{ x: xs, y: ys }], layout, config);
     });

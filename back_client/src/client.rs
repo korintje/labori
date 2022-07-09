@@ -25,9 +25,9 @@ pub async fn connect(
     'outer: loop {
     
         let stream = match std::net::TcpStream::connect(&config.device_addr) {
-            Err(e) => {
-                println!("Failed to connect TCP server: {}", e);
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            Err(_e) => {
+                // println!("Failed to connect TCP server: {}", e);
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 continue 'outer;
             }
             Ok(stream) => {
@@ -37,10 +37,7 @@ pub async fn connect(
             },
         };
         
-        while state.alive == false {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            continue 'outer;
-        };
+        while state.alive == false { continue 'outer; };
 
         'inner: while let Some(cmd_obj) = rx_from_server.recv().await {
             
@@ -139,11 +136,11 @@ async fn poll(
     let cmd = Command::Get { key: "Interval".to_string() }.into_cmd().unwrap();
     send_cmd(&stream, &tx_to_server, &cmd, state).await;
     let response = get_response(&stream, state).await;
-    let interval = match response {
+    let interval_str = match response {
         Response::Success(Success::GotValue(val)) => val,
         _ => panic!("Could not to get interval value from machine"),
     };
-    let interval = interval.parse().unwrap();
+    let interval = interval_str.parse().unwrap();
 
     // Determine polling duration
     let duration;
@@ -209,16 +206,19 @@ async fn poll(
                         break
                     },
                     _ => tx_to_server.send(
-                        Response::Failure(Failure::Busy(table_name.to_string()))
+                        Response::Failure(
+                            Failure::Busy{
+                                table_name: table_name.to_string(),
+                                interval: interval_str.clone(),
+                            }
+                        )
                     ).await.unwrap()
                 } 
             },
             Err(_) => (),
         }
 
-        // println!("Before {:?} msec duration", duration);
         polling_interval.tick().await;
-        // println!("After {:?} msec duration", duration);
 
     }
 

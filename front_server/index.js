@@ -50,13 +50,16 @@ const check_run = (socket, state) => {
     if ("Success" in json_data) {
       const interval = json_data["Success"]["GotValue"];
       socket.emit("update_interval", interval);
-      // clearInterval(state["streaming"]);
     } else if ("Failure" in json_data) {
-      const table_name = json_data["Failure"]["Busy"];
-      state["last_rowid"] = 0;
-      state["streaming"] = setInterval(
-        () => { stream(socket, table_name, state); }, SAMPLE_RATE
-      );
+      if ("Busy" in json_data["Failure"]) {
+        const table_name = json_data["Failure"]["Busy"]["table_name"];
+        const interval = json_data["Failure"]["Busy"]["interval"];
+        socket.emit("update_interval", interval); 
+        state["last_rowid"] = 0;
+        state["streaming"] = setInterval(
+          () => { stream(socket, table_name, state); }, SAMPLE_RATE
+        );
+      }
     }
   });  
 };
@@ -114,11 +117,17 @@ io.on("connection", (socket) => {
 
   // Read database
   socket.on("read_db", (table, callback)  => {
-    console.log(`select * from '${table}'`);
-    db.all(`select * from '${table}'`, (_err, data) => {
+    console.log(`select time,freq from '${table}'`);
+    db.all(`select time,freq from '${table}'`, (_err, data) => {
       if (data !== undefined) {
+        let ts = [];
+        let fs = [];
+        data.forEach(datum => {
+          ts.push(datum["time"]);
+          fs.push(datum["freq"]);          
+        });
         console.log(`${data.length} data has sent.`);
-        callback(data);
+        callback([ts,fs]);
       }
     });
   });

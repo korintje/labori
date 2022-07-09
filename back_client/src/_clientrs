@@ -1,0 +1,312 @@
+use crate::model::{Command, Response, Success, Failure};
+use crate::config::Config;
+use crate::error::LaboriError;
+use crate::logger;
+use std::net::TcpStream;
+use tokio::sync::mpsc;
+use std::io::{BufReader, Write, Read, BufWriter};
+use encoding::{Encoding, EncoderTrap, DecoderTrap};
+use encoding::all::ASCII;
+use chrono::Local;
+
+pub async fn connect(
+    config: Config,
+    tx_to_server: mpsc::Sender<Response>,
+    mut rx_from_server: mpsc::Receiver<Command>,
+) -> Result<(), LaboriError> {
+
+    let device_name = config.device_name;
+    let mut stream_r = get_stream_result(&config.device_addr);
+    // let mut stream = get_stream(&config.device_addr, &tx_to_server).await;
+
+    while let Some(cmd_obj) = rx_from_server.recv().await {
+        
+        // Check whether inputed command is correct
+        let cmd = match cmd_obj.into_cmd() {
+            Err(e) => {
+                tx_to_server.send(
+                    Response::Failure(Failure::InvalidCommand(e.to_string()))
+                ).await.unwrap();
+                continue
+            },
+            Ok(cmd) => cmd,
+        };
+
+        match cmd_obj {
+            Command::Get { key: _ } => {
+                if let Ok(stream_ref) = stream_r.as_ref() {
+                    get_cmd(stream_ref, &cmd, &tx_to_server).await;
+                } else {
+                    stream_r = get_stream_result(&config.device_addr);
+                    match stream_r.as_ref() {
+                        Ok(stream_ref) => get_cmd(stream_ref, &cmd, &tx_to_server).await,
+                        Err(e) => tx_to_server.send(Response::Failure(Failure::from(e))).await.unwrap(),
+                    }
+                }
+            },
+            Command::Set { key: _, value: val } => {
+                if let Ok(stream_ref) = stream_r.as_ref() {
+                    set_cmd(stream_ref, &cmd, &tx_to_server, &val).await;
+                } else {
+                    stream_r = get_stream_result(&config.device_addr);
+                    match stream_r.as_ref() {
+                        Ok(stream_ref) => set_cmd(stream_ref, &cmd, &tx_to_server, &val).await,
+                        Err(e) => tx_to_server.send(Response::Failure(Failure::from(e))).await.unwrap(),
+                    }
+                }
+            },
+            Command::Run{} => {
+                if let Ok(stream_ref) = stream_r.as_ref() {
+                    if let Err(e) = send_cmd(stream_ref, &cmd).await.as_ref() {
+                        tx_to_server.send(
+                            Response::Failure(Failure::from(e))
+                        ).await.unwrap();
+                    }
+                    if let Err(e) = poll(&device_name, stream_ref, &tx_to_server, &mut rx_from_server).await.as_ref() {
+                        tx_to_server.send(
+                            Response::Failure(Failure::from(e))
+                        ).await.unwrap()
+                    }                 
+                } else {
+                    stream_r = get_stream_result(&config.device_addr);
+                    match stream_r.as_ref() {
+                        Ok(stream_ref) => {
+                            if let Err(e) = send_cmd(stream_ref, &cmd).await.as_ref() {
+                                tx_to_server.send(
+                                    Response::Failure(Failure::from(e))
+                                ).await.unwrap();
+                            }         
+                            if let Err(e) = poll(&device_name, stream_ref, &tx_to_server, &mut rx_from_server).await.as_ref() {
+                                tx_to_server.send(
+                                    Response::Failure(Failure::from(e))
+                                ).await.unwrap()
+                            }
+                        },
+                        Err(e) => tx_to_server.send(Response::Failure(Failure::from(e))).await.unwrap(),
+                    }
+                }
+            },
+            Command::Stop{} => {
+                tx_to_server.send(
+                    Response::Failure(Failure::NotRunning("Measurement not running".to_string()))
+                ).await.unwrap();
+            }
+        }
+
+    }
+
+    Ok(())
+
+}
+
+async fn get_cmd(stream: &TcpStream, cmd: &str, tx: &mpsc::Sender<Response>) {
+    if let Err(e) = send_cmd(stream, cmd).await {
+        Response::Failure(Failure::from(&e));
+    } else {
+        tx.send(
+            match get_response(stream).await {
+                Ok(res) => res,
+                Err(e) => Response::Failure(Failure::from(&e))
+            }
+        ).await.unwrap();                        
+    }
+}
+
+async fn set_cmd(stream: &TcpStream, cmd: &str, tx: &mpsc::Sender<Response>, val: &str) {
+    if let Err(e) = send_cmd(&stream, &cmd).await {
+        Response::Failure(Failure::from(&e));
+    } else {
+        tx.send(
+            Response::Success(Success::SetValue(val.to_string()))
+        ).await.unwrap();
+    }
+}
+
+
+fn get_stream_result(device_addr: &str) -> Result<TcpStream, LaboriError> {
+    match std::net::TcpStream::connect(device_addr) {
+        Err(e) => {
+            println!("Failed to connect TCP server");
+            Err(LaboriError::TCPConnectionError(e))
+        },
+        Ok(stream) => {
+            println!("Successfully connected TCP server");
+            Ok(stream)
+        },
+    }
+}
+
+/*
+async fn get_stream(device_addr: &str, tx: &mpsc::Sender<Response>) -> TcpStream {
+    match std::net::TcpStream::connect(device_addr) {
+        Err(e) => {
+            tx.send(
+                Response::Failure(Failure::MachineNotRespond(e.to_string()))
+            ).await.unwrap();
+            panic!("Failed to connect TCP server");
+        },
+        Ok(stream) => {
+            println!("Successfully connected TCP server");
+            stream
+        },
+    }
+}
+*/
+
+async fn send_cmd(stream: &TcpStream, cmd: &str)
+-> Result<(), LaboriError> {
+    let cmd_ba = ASCII.encode(cmd, EncoderTrap::Replace).unwrap();
+    let mut writer = BufWriter::new(stream);
+    match writer.write(&cmd_ba) {
+        Ok(_) => {
+            println!("Sent query: {:?}", &cmd_ba);
+            match writer.flush() {
+                Ok(_) => Ok(()),
+                Err(e) => Err(LaboriError::TCPConnectionError(e)),
+            }
+        },
+        Err(e) => {Err(LaboriError::TCPConnectionError(e))
+        },
+    }
+}
+
+async fn get_response(stream: &TcpStream) -> Result<Response, LaboriError> {
+    let mut reader = BufReader::new(stream);
+    let mut buff = vec![0; 1024];
+    match reader.read(&mut buff) {
+        Ok(n) => {
+            let response_ba = &buff[0..n];
+            println!("Received response: {:?}", response_ba);
+            if response_ba.last() != Some(&10u8) {
+                Err(LaboriError::InvalidReturn(
+                    "No LF in the end of the response".to_string()
+                ))
+            } else {
+                let response_ba = &response_ba[..response_ba.len()-1];
+                let response = ASCII.decode(response_ba, DecoderTrap::Replace).unwrap();
+                Ok(Response::Success(Success::GotValue(response)))
+            }
+        },
+        Err(e) => {
+            Err(LaboriError::TCPConnectionError(e))
+        },
+    }    
+}
+
+async fn poll(
+    device_name: &str,
+    stream: &TcpStream,
+    tx_to_server: &mpsc::Sender<Response>,
+    rx_from_server: &mut mpsc::Receiver<Command>,
+  ) -> Result<(), LaboriError> {
+
+    // Get interval value
+    let interval: f64;
+    let cmd = Command::Get { key: "Interval".to_string() }.into_cmd().unwrap();
+    if let Err(e) = send_cmd(&stream, &cmd).await {
+        return Err(LaboriError::from(e));        
+    } else {
+        match get_response(&stream).await {
+            Ok(response) => {
+                if let Response::Success(Success::GotValue(val)) = response {
+                    interval = val.parse().unwrap();
+                } else {
+                    panic!("Could not to get interval value from machine");
+                };
+            },
+            Err(e) => return Err(LaboriError::from(e)),
+        }; 
+
+    };
+
+    // Determine polling duration
+    let duration;
+    if interval <= 0.001 {
+        duration = 10;
+    } else if interval <= 0.01 {
+        duration = 100;        
+    } else if interval <= 0.1 {
+        duration = 110;
+    } else if interval <= 1.0 {
+        duration = 1100;
+    } else {
+        duration = 11000;
+    }
+    let mut polling_interval = tokio::time::interval(
+        tokio::time::Duration::from_millis(duration)
+    );
+
+    // Spawn logger
+    let table_name = &Local::now().format("%Y-%m-%dT%H:%M:%S");
+    let (tx_to_logger, rx_from_client) = mpsc::channel(1024);
+    let log_handle = tokio::spawn(
+        logger::log(device_name.to_string(), table_name.to_string(), interval, rx_from_client)
+    );
+  
+    // Prepare command bytes
+    let polling_cmd = ":LOG:DATA?\n";
+    let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
+  
+    // Prepare buffers
+    let mut reader = BufReader::new(stream);
+    let mut writer = BufWriter::new(stream);
+
+    // Respond that the measurement has started
+    tx_to_server.send(
+        Response::Success(Success::SaveTable(table_name.to_string()))
+    ).await.unwrap();
+    
+    // Data polling loop
+    loop {
+
+        writer.write(&polling_cmd).unwrap();
+        writer.flush().unwrap();
+  
+        let mut buff = vec![0; 1024];
+        let n = reader.read(&mut buff).unwrap();
+        // println!("{}\r", n);
+        
+        if n >= 2 {
+            if let Err(e) = tx_to_logger.send(buff[..n].to_vec()).await {
+                println!("Failed to send {}", e)
+            };
+        }
+        
+        // Controll polling interval
+        match rx_from_server.try_recv() {
+            Ok(cmd) => {
+                match cmd {
+                    Command::Stop {} => {
+                        if let Err(e) = tx_to_logger.send(vec![4u8]).await {
+                            println!("Failed to kill logger {}", e)
+                        };
+                        break
+                    },
+                    _ => tx_to_server.send(
+                        Response::Failure(Failure::Busy(table_name.to_string()))
+                    ).await.unwrap()
+                } 
+            },
+            Err(_) => (),
+        }
+
+        polling_interval.tick().await;
+
+    }
+
+    if let Err(e) = log_handle.await.unwrap() {
+        tx_to_server.send(
+            Response::Failure(Failure::SaveDataFailed(
+                e.to_string()
+            ))
+        ).await.unwrap();
+    }else{
+        tx_to_server.send(
+            Response::Success(Success::Finished(
+                "Measurement successfully finished".to_string()
+            ))
+        ).await.unwrap();
+    }
+
+    Ok(())
+}
