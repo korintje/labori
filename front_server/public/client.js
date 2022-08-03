@@ -2,16 +2,22 @@
 const MONITOR_VIEW = document.getElementById('monitor');
 const HISTORY_VIEW = document.getElementById('history');
 const indicator = document.getElementById("socket");
-/* const get_interval_button = document.getElementById("get_interval"); */
 const interval_select = document.getElementById("interval_select");
 const interval_options = document.querySelectorAll("#interval_select option");
 const run_button = document.getElementById("run");
 const stop_button = document.getElementById("stop");
 const history_select = document.getElementById("history_select");
 const history_options = document.getElementById("history_select");
-const save_button_run = document.getElementById("save_csv_run");
 const save_button_history = document.getElementById("save_csv_history");
 const remove_button = document.getElementById("remove");
+const response_field = document.getElementById("response_field");
+
+// Edit response field
+function show_response(json_obj) {
+  console.log(json_obj)
+  let json_str = JSON.stringify(json_obj);
+  response_field.value = json_str;
+}
 
 // General function to set options
 function setOption(selectElement, value) {
@@ -66,7 +72,7 @@ function download_csv(xs, ys, table_name) {
 let layout = {
   title: 'QCM monitor',
   xaxis: { title: 'time / sec', automargin: true },
-  yaxis: { title: 'frequency / Hz', automargin: true },
+  yaxis: { title: 'frequency / Hz', automargin: true, tickformat: '.2f' },
   margin: { t: 96 }
 };
 const config = { responsive: true };
@@ -84,14 +90,14 @@ const socket = io({reconnection: false});
 
 // Socket disconnection event
 socket.on("disconnect", () => {
-  console.log("disconnected from server")
-  indicator.innerHTML= "disconnected";
+  show_response("disconnected from server");
+  indicator.value= "disconnected";
 });
 
 // Update table list
 socket.on("update_table_list", (tables) => {
-  removeOptions(history_select);
   console.log(tables);
+  removeOptions(history_select);
   for (const table of tables) {
     const option = document.createElement("option");
     option.value = table["name"];
@@ -105,16 +111,10 @@ socket.on("init_monitor", () => {
   xs_live = [];
   ys_live = [];
   rs_live = [];
-  /*
-  socket.emit("update", "", (response) => {
-    console.log(response);
-  });
-  */
 });
 
 // Update monitor view
 socket.on("update_monitor", (data) => {
-  // console.log(data);
   data.forEach(function(datum){
     xs_live.push(datum["time"]);
     ys_live.push(datum["freq"]);
@@ -140,15 +140,15 @@ socket.on('connect', function() {
   Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
 
   // Show connected
-  console.log("connected to server");
-  indicator.innerHTML= "connected";
+  show_response("connected to server");
+  indicator.value= "connected";
 
   // Interval select
   interval_select.addEventListener("change", () => {
     let index = interval_select.selectedIndex;
     let interval = interval_options[index].value;
     socket.emit("set_interval", interval, (response) => {
-      console.log(response);
+      show_response(response);
     });
   });
 
@@ -157,16 +157,9 @@ socket.on('connect', function() {
     let index = history_select.selectedIndex;
     let table = history_options[index].value;
     socket.emit("read_db", table, (data) => {
-      console.log(`${data.length} data received.`);
-      console.log(data);
+      show_response(`Got data from ${table}`);
       xs = data[0];
       ys = data[1];
-      // rs = [];
-      // data.forEach(function(datum){
-      //   xs.push(datum["time"]);
-      //   ys.push(datum["freq"]);
-      //   rs.push(datum["rate"]);
-      // });
       layout.title = table;
       Plotly.newPlot(HISTORY_VIEW, [{ x: xs, y: ys }], layout, config);
     });
@@ -177,28 +170,23 @@ socket.on('connect', function() {
     let index = interval_select.selectedIndex;
     let interval = interval_options[index].value;
     socket.emit("set_interval", interval, (response) => {
-      console.log(response);
-    });
-    socket.emit("run", "", (response) => {
-      console.log(response);
-      if ("Success" in response) {
-        xs_live = [];
-        ys_live = [];
-        rs_live = [];
-      }
+      show_response(response);
+      socket.emit("run", "", (response) => {
+        show_response(response);
+        if ("Success" in response) {
+          xs_live = [];
+          ys_live = [];
+          rs_live = [];
+        }
+      });
     });
   });
 
   // Stop button
   stop_button.addEventListener("click", () => {
     socket.emit("stop", "", (response) => {
-      console.log(response);
+      show_response(response);
     });
-  });
-
-  // Save button for monitor
-  save_button_run.addEventListener("click", () => {
-    download_csv(xs_live, ys_live, "current_run");
   });
 
   // Save button for table list
@@ -215,18 +203,9 @@ socket.on('connect', function() {
     let table_name = history_options[index].value;
     if(window.confirm(`Are you sure to remove ${table_name}？`)){
       socket.emit("remove", table_name, (response) => {
-        console.log(response);
+        show_response(response);
       });
     }
   }); 
-
-  // Get interval button
-  /*
-  get_interval_button.addEventListener("click", () => {
-    socket.emit("get_interval", "", (response) => {
-      console.log(response);
-    });
-  });
-  */
 
 });

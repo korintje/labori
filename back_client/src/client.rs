@@ -1,4 +1,4 @@
-use crate::model::{Command, Response, Success, Failure, ConnectionState};
+use crate::model::{Command, Response, Success, Failure};
 use crate::config::Config;
 use crate::error::LaboriError;
 use crate::logger;
@@ -7,10 +7,6 @@ use tokio::sync::mpsc;
 use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
-// use tokio::time;
-// use tokio::time::{sleep, Duration};
-// use tokio::time::{interval, Duration};
-// use std::{thread, time};
 use chrono::Local;
 
 pub async fn connect(
@@ -19,89 +15,102 @@ pub async fn connect(
     mut rx_from_server: mpsc::Receiver<Command>,
 ) -> Result<(), LaboriError> {
 
-    let mut state = ConnectionState{alive: false};
-    let device_name = config.device_name;
+    let device_name = &config.device_name;
+    let device_addr = &config.device_addr;
 
-    'outer: loop {
-    
-        let stream = match std::net::TcpStream::connect(&config.device_addr) {
-            Err(_e) => {
-                // println!("Failed to connect TCP server: {}", e);
-                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                continue 'outer;
-            }
-            Ok(stream) => {
-                println!("Successfully connected  TCP server");
-                state.alive = true;
-                stream
-            },
-        };
-        
-        while state.alive == false { continue 'outer; };
-
-        'inner: while let Some(cmd_obj) = rx_from_server.recv().await {
+    while let Some(cmd_obj) = rx_from_server.recv().await {
             
-            // Check whether inputed command is correct
-            let cmd = match cmd_obj.into_cmd() {
-                Err(e) => {
-                    tx_to_server.send(
-                        Response::Failure(Failure::InvalidCommand(e.to_string()))
-                    ).await.unwrap();
-                    continue
-                },
-                Ok(cmd) => cmd,
-            };
+        // Check whether inputed command is correct
+        let cmd = match cmd_obj.into_cmd() {
+            Err(e) => {
+                tx_to_server.send(
+                    Response::Failure(Failure::InvalidCommand(e.to_string()))
+                ).await.unwrap();
+                continue
+            },
+            Ok(cmd) => cmd,
+        };
 
-            match cmd_obj {
-                Command::Get { key: _ } => {
-                    send_cmd(&stream, &tx_to_server, &cmd, &mut state).await;
-                    tx_to_server.send(
-                        get_response(&stream, &mut state).await
-                    ).await.unwrap();
-                },
-                Command::Set { key: _, value: val } => {
-                    send_cmd(&stream, &tx_to_server, &cmd, &mut state).await;
-                    tx_to_server.send(
-                        Response::Success(Success::SetValue(val))
-                    ).await.unwrap();
-                },
-                Command::Run{} => {
-                    send_cmd(&stream, &tx_to_server, &cmd, &mut state).await;
-                    poll(&device_name, &stream, &tx_to_server, &mut rx_from_server, &mut state).await;
-                },
-                Command::Stop{} => {
-                    tx_to_server.send(
-                        Response::Failure(Failure::NotRunning("Measurement not running".to_string()))
-                    ).await.unwrap();
+        match cmd_obj {
+            Command::Get { key: _ } => {
+                match get_stream(device_addr) {
+                    Some(stream) => {
+                        send_cmd(&stream, &tx_to_server, &cmd).await;
+                        tx_to_server.send(
+                            get_response(&stream).await
+                        ).await.unwrap();
+                    },
+                    None => respond_empty_stream(&tx_to_server).await,
                 }
+            },
+            Command::Set { key: _, value: val } => {
+                match get_stream(device_addr) {
+                    Some(stream) => {
+                        send_cmd(&stream, &tx_to_server, &cmd).await;
+                        tx_to_server.send(
+                            Response::Success(Success::SetValue(val))
+                        ).await.unwrap();
+                    },
+                    None => respond_empty_stream(&tx_to_server).await,
+                }
+            },
+            Command::Run{} => {
+                match get_stream(device_addr) {
+                    Some(stream) => {
+                        send_cmd(&stream, &tx_to_server, &cmd).await;
+                        poll(&device_name, &stream, &tx_to_server, &mut rx_from_server).await;
+                    },
+                    None => respond_empty_stream(&tx_to_server).await,
+                }
+            },
+            Command::Stop{} => {
+                tx_to_server.send(
+                    Response::Failure(Failure::NotRunning("Measurement not running".to_string()))
+                ).await.unwrap();
             }
-
-            if state.alive == false { break 'inner;}
         }
     }
-
-    // Ok(())
+    Ok(())
 }
 
-async fn send_cmd(stream: &TcpStream, tx: &mpsc::Sender<Response>, cmd: &str, state: &mut ConnectionState) {
+fn get_stream(device_addr: &str) -> Option<TcpStream> {
+    match std::net::TcpStream::connect(device_addr) {
+        Err(e) => {
+            println!("Failed to connect TCP server: {}", e);
+            None
+        },
+        Ok(stream) => {
+            println!("Successfully connected TCP server");
+            Some(stream)
+        },
+    }
+}
+
+async fn respond_empty_stream(tx: &mpsc::Sender<Response>) {
+    tx.send(
+        Response::Failure(Failure::EmptyStream(
+            "Failed to get TCP stream with counter".to_string()
+        ))
+    ).await.unwrap();
+}
+
+async fn send_cmd(stream: &TcpStream, tx: &mpsc::Sender<Response>, cmd: &str) {
     let cmd_ba = ASCII.encode(cmd, EncoderTrap::Replace).unwrap();
     let mut writer = BufWriter::new(stream);
     match writer.write(&cmd_ba) {
         Ok(_) => println!("Sent query: {:?}", &cmd_ba),
         Err(e) => {
-            state.alive = false;
             tx.send(
                 Response::Failure(Failure::CommandNotSent(e.to_string()))
             ).await.unwrap();
         },
     }
-    match writer.flush() {
-        Ok(_) => (),
-        Err(_) => state.alive = false,
-    };
+    if let Err(e) = writer.flush() {
+        println!("Failed to flush TCP writer: {}", e);
+    }
 }
 
-async fn get_response(stream: &TcpStream, state: &mut ConnectionState) -> Response {
+async fn get_response(stream: &TcpStream) -> Response {
     let mut reader = BufReader::new(stream);
     let mut buff = vec![0; 1024];
     match reader.read(&mut buff) {
@@ -109,7 +118,6 @@ async fn get_response(stream: &TcpStream, state: &mut ConnectionState) -> Respon
             let response_ba = &buff[0..n];
             println!("Received response: {:?}", response_ba);
             if response_ba.last() != Some(&10u8) {
-                state.alive = false;
                 Response::Failure(Failure::InvalidReturn("No LF in the end of the response".to_string()))
             } else {
                 let response_ba = &response_ba[..response_ba.len()-1];
@@ -118,7 +126,6 @@ async fn get_response(stream: &TcpStream, state: &mut ConnectionState) -> Respon
             }
         },
         Err(e) => {
-            state.alive = false;
             Response::Failure(Failure::MachineNotRespond(e.to_string()))
         },
     }    
@@ -129,13 +136,12 @@ async fn poll(
     stream: &TcpStream,
     tx_to_server: &mpsc::Sender<Response>,
     rx_from_server: &mut mpsc::Receiver<Command>,
-    state: &mut ConnectionState,
   ) {
 
     // Get interval value
     let cmd = Command::Get { key: "Interval".to_string() }.into_cmd().unwrap();
-    send_cmd(&stream, &tx_to_server, &cmd, state).await;
-    let response = get_response(&stream, state).await;
+    send_cmd(&stream, &tx_to_server, &cmd).await;
+    let response = get_response(&stream).await;
     let interval_str = match response {
         Response::Success(Success::GotValue(val)) => val,
         _ => panic!("Could not to get interval value from machine"),

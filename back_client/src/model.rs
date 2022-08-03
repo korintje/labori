@@ -104,6 +104,7 @@ pub enum Failure {
     MachineNotRespond(String),
     SignalFailed(String),
     SendToFrontFailed(String),
+    EmptyStream(String),
 }
 
 impl From<&LaboriError> for Failure {
@@ -118,8 +119,4 @@ impl From<&LaboriError> for Failure {
             // LaboriError::InvalidReturn(s) => Failure::InvalidReturn(s.to_string()),
         }
     }
-}
-
-pub struct ConnectionState {
-    pub alive: bool,
 }

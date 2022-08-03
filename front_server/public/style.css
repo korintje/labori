@@ -1,0 +1,108 @@
+body {
+  font-family: sans-serif;
+}
+
+.wrapper {
+  display: table;
+  background-color: #cecece;
+  width: 100%;
+  margin: 1% 0% 0% 0%;
+}
+
+.graph {
+  display: block;
+  margin: 0.5% 0.5% 0.5% 0.5%;
+}
+
+.graph_box {
+  display: table-cell;
+  vertical-align: bottom;
+  width: 80%;
+}
+
+.handler {
+  display: table-cell;
+  width: 20%;
+  height: 100%;
+  vertical-align: bottom;
+  padding: 0.5% 0% 0.5% 0%;
+}
+
+.wrapper td {
+  width: 100%;
+}
+
+.select_box {
+  font-size:18px;
+  height: 50%;
+  padding: 1% 0% 1% 0%;
+}
+
+.select_box select {
+  font-size:18px;
+  height:100%;
+  width:97%;
+}
+
+.select_box select option {
+  font-size:18px;
+}
+
+
+.button_box {
+  width: 100%;
+  height: 50%;
+}
+
+.my_button {
+  font-size:20px;
+  width: 48%;
+  height: 100%;
+  min-height: 50px;
+}
+
+
+.field_left {
+  width: 95%;
+}
+
+/*
+#history_select {
+  height: 100%;
+}
+*/
+
+
+/*
+#connection_container {
+  width: 100%;
+  margin: 0px 8px 0px 8px
+}
+
+#response_container {
+  width: 100%;
+  margin: 0px 8px 0px 8px
+}
+*/
+
+
+/*
+.wrapper {
+  display: grid;
+  grid-template-rows: repeat(1, 100%);
+  grid-template-columns: repeat(4, 25%); 
+  background-color: #999999; 
+}
+
+.graph {
+  grid-column: 1/4;
+  grid-row: 1/2;
+}
+
+.handler {
+  grid-column: 4/5;
+  grid-row: 1/2;
+  height: 600px;
+
+}
+*/

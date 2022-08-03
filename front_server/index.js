@@ -144,7 +144,6 @@ io.on("connection", (socket) => {
   
   // Run measurement
   socket.on('run', (_arg, callback) => {
-    // socket.broadcast.emit('init_monitor');
     const client = connect_TCP(`{"Run": {}}`);
     client.on('data', data => {
       console.log('Received from TCP server: ' + data);
@@ -163,6 +162,13 @@ io.on("connection", (socket) => {
     get_tables(socket);
   });
 
+  // Explicet update table list
+  /*
+  socket.on('get_table_list', (_arg, callback) => {
+    get_tables(socket);
+  });
+  */
+
   // Stop measurement
   socket.on('stop', (_arg, callback) => {
     const client = connect_TCP(`{"Stop": {}}`);
@@ -173,12 +179,12 @@ io.on("connection", (socket) => {
         state["last_rowid"] = 0;
         clearInterval(state["streaming"]);
         get_and_update_interval(socket);
+        get_tables(socket);
       } else if ("Failure" in json_data) {
         ;
       }
       callback(json_data);
     });
-    get_tables(socket);
   });  
 
   // Remove table
