@@ -143,8 +143,14 @@ io.on("connection", (socket) => {
   });
   
   // Run measurement
-  socket.on('run', (_arg, callback) => {
-    const client = connect_TCP(`{"Run": {}}`);
+  socket.on('run', (duration, callback) => {
+    
+    /* To use internal clock in the counter: */
+    // const client = connect_TCP(`{"Run": {}}`);
+    
+    /* To use external clock e.g. Raspberry pi: */
+    const client = connect_TCP(`{"RunExt": {"duration": "${duration}"}}`)
+
     client.on('data', data => {
       console.log('Received from TCP server: ' + data);
       const json_data = JSON.parse(data);

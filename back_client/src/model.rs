@@ -23,6 +23,7 @@ pub enum Command {
     Get { key: String },
     Set { key: String, value: String },
     Run {},
+    RunExt { duration: String },
     Stop {},
 }
 
@@ -68,8 +69,9 @@ impl Command {
                     ))
                 }
             },
-            Command::Run{} => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN ON",
-            Command::Stop{} => cmd += ":FRUN OFF",
+            Command::Run{} => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN 1",
+            Command::RunExt{ duration: _x } => cmd += ":FRUN 1",
+            Command::Stop{} => cmd += ":FRUN 1",
         }
         Ok(cmd + "\n")
     }

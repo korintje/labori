@@ -127,3 +127,97 @@ pub async fn log(
     Ok(())
 
 }
+
+
+pub async fn log_ext(
+  device_name: String,
+  table_name: String,
+  interval: f64,
+  mut rx: mpsc::Receiver<Vec<u8>>
+) -> Result<(), error::LaboriError> {
+
+  // println!("{:?}", interval);
+  
+  // Determine batch size for SQL insertion
+  let batch_size;
+  if interval <= 0.001 {
+      batch_size = 100;        
+  } else if interval <= 0.01 {
+      batch_size = 10;
+  } else if interval <= 0.1 {
+      batch_size = 1;
+  } else {
+      batch_size = 1;
+  }
+
+  let dbpath = format!("{}.db", device_name);
+  if ! Path::new(&dbpath).exists() {
+      create_db(&dbpath).await?;
+  }
+  let conn = connect_db(&dbpath).await?;
+  let mut conn = prepare_tables(conn, &table_name).await?;
+
+  // Insert atom parameters into the table
+  let mut values = vec![];
+  let query_head = format!("INSERT INTO '{}' VALUES ", &table_name);
+
+  println!("Start logging");
+  // let mut current_time = 0.0;
+
+  while let Some(buff) = rx.recv().await {
+
+    // println!("RECEIVED");
+
+      // Check and remove LF at the end of the buff
+      let freq_u8: Vec<u8>;
+      let meas_time: f64; 
+      if buff.last() != Some(&10u8) {
+        if buff[0] == 4u8 {
+          println!("Stop logging");
+          break
+        }else{
+          println!("Broken stream");
+          continue
+        }
+      } else {
+        // println!("Correct stream");
+        meas_time = u64::from_ne_bytes(buff[0..8].try_into().unwrap()) as f64 / 1000.0;
+        freq_u8 = buff[8..buff.len()-1].to_vec();
+      }
+
+      // Decode to ASCII, parse to f64, and append to vec.
+      let freq_ascii = ASCII.decode(&freq_u8, DecoderTrap::Replace).unwrap();
+      let freq_f64 = freq_ascii.parse::<f64>().unwrap();
+      values.push(format!("({}, {}, {})", meas_time, freq_f64, &freq_u8.len()));
+
+      /*
+      freqs_u8.split(|b| *b == 44u8)
+          .map(|x| ASCII.decode(x, DecoderTrap::Replace).unwrap())
+          .map(|x| x.parse::<f64>().unwrap())
+          .for_each(|x| {
+            // current_time += interval;
+            values.push(format!("({}, {}, {})", meas_time, x, &freqs_u8.len()));
+          });
+      */
+
+      // println!("{:?}\r", values.len());
+      // Insert to sqlite db if values length > 5000.
+      // println!("VALUES LENGTH: {}", values.len());
+      if values.len() >= batch_size {
+          // println!("{:?}", &values);
+          // println!("Batch!: {:?}", &values);
+          let query = query_head.clone() + &values.join(", ");
+          let _ = &conn.execute(sqlx::query(&query)).await?;
+          values = vec![];
+      }
+
+  }
+
+  if values.len() != 0 {
+      let query = query_head + &values.join(", ");
+      let _ = &conn.execute(sqlx::query(&query)).await?;
+  }
+
+  Ok(())
+
+}

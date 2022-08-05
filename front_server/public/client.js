@@ -171,7 +171,7 @@ socket.on('connect', function() {
     let interval = interval_options[index].value;
     socket.emit("set_interval", interval, (response) => {
       show_response(response);
-      socket.emit("run", "", (response) => {
+      socket.emit("run", interval, (response) => {
         show_response(response);
         if ("Success" in response) {
           xs_live = [];
