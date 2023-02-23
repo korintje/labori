@@ -24,6 +24,7 @@ pub enum Command {
     Set { key: String, value: String },
     Run {},
     RunExt { duration: String },
+    RunMulti { channel_count: u8, switch_delay: f64, channel_interval: f64, interval: f64 },
     Stop {},
 }
 
@@ -70,7 +71,8 @@ impl Command {
                 }
             },
             Command::Run{} => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN 1",
-            Command::RunExt{ duration: _x } => cmd += ":FRUN 1",
+            Command::RunExt{..} => cmd += ":FRUN 1",
+            Command::RunMulti{..} => cmd += ":FRUN 1",
             Command::Stop{} => cmd += ":FRUN 1",
         }
         Ok(cmd + "\n")

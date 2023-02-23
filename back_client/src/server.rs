@@ -43,7 +43,7 @@ pub async fn serve(
                 ));
                 continue
             },
-         };
+        };
         let command: Command = match serde_json::from_str(&request){
             Ok(s) => s,
             Err(e) => {
