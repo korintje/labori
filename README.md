@@ -38,7 +38,7 @@ WIP
 - MachineNotRespond(String)
 - SignalFailed(String)
 - SendToFrontFailed(String)
+- EmptyStream(String)
 
 # Usage
 WIP
-- EmptyStream(String)
