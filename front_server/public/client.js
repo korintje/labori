@@ -75,7 +75,14 @@ let layout = {
   yaxis: { title: 'frequency / Hz', automargin: true, tickformat: '.2f' },
   margin: { t: 96 }
 };
+let layout_hist = {
+  title: 'QCM data viewer',
+  xaxis: { title: 'time / sec', automargin: true },
+  yaxis: { title: 'frequency / Hz', automargin: true, tickformat: '.2f' },
+  margin: { t: 96 }
+};
 const config = { responsive: true };
+const config_hist = { responsive: true };
 let xs_live = [];
 let ys_live = [];
 let rs_live = [];
@@ -83,7 +90,7 @@ let xs = [];
 let ys = [];
 let rs = [];
 Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
-Plotly.newPlot( HISTORY_VIEW, [{ x: xs, y: ys }], layout, config );
+Plotly.newPlot( HISTORY_VIEW, [{ x: xs, y: ys }], layout_hist, config_hist );
 
 // Define socket
 const socket = io({reconnection: false});
@@ -161,7 +168,7 @@ socket.on('connect', function() {
       xs = data[0];
       ys = data[1];
       layout.title = table;
-      Plotly.newPlot(HISTORY_VIEW, [{ x: xs, y: ys }], layout, config);
+      Plotly.newPlot(HISTORY_VIEW, [{ x: xs, y: ys }], layout_hist, config_hist);
     });
   });
 
