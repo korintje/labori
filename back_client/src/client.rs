@@ -8,9 +8,10 @@ use std::io::{BufReader, Write, Read, BufWriter};
 use encoding::{Encoding, EncoderTrap, DecoderTrap};
 use encoding::all::ASCII;
 use chrono::Local;
-use std::time::{SystemTime};
+use std::time::SystemTime;
 use rppal::gpio::Gpio;
 
+// const GPIO_PINS: [u8;4] = [17, 27, 22, 23];
 const GPIO_PINS: [u8;6] = [17, 27, 22, 23, 24, 25];
 
 pub async fn connect(
@@ -78,7 +79,7 @@ pub async fn connect(
                     None => respond_empty_stream(&tx_to_server).await,
                 }
             },
-            Command::RunMulti{ channel_count, switch_delay, channel_interval, interval } => {
+            Command::RunMulti{ channels, interval } => {
                 match get_stream(device_addr) {
                     Some(stream) => {
                         send_cmd(&stream, &tx_to_server, &cmd).await;
@@ -91,9 +92,7 @@ pub async fn connect(
                             &stream,
                             &tx_to_server,
                             &mut rx_from_server,
-                            channel_count,
-                            switch_delay,
-                            channel_interval,
+                            channels,
                             interval
                         ).await;
                     },
@@ -418,20 +417,40 @@ async fn poll_multi(
     stream: &TcpStream,
     tx_to_server: &mpsc::Sender<Response>,
     rx_from_server: &mut mpsc::Receiver<Command>,
-    channel_count: u8,
-    switch_delay: f64,
-    channel_interval: f64,
+    channels: Vec<u8>,
     interval: f64,
 ) {
 
-    // Set start time and polling interval
-    let start_time = SystemTime::now();
-    let mut _switch_delay = tokio::time::interval(
-        tokio::time::Duration::from_millis((switch_delay * 1000.0) as u64)
-    );
-    let mut _channel_interval = tokio::time::interval(
-        tokio::time::Duration::from_millis((channel_interval * 1000.0) as u64)
-    );
+    // Setup GPIO
+    let gpio = Gpio::new().unwrap();
+    let mut used_pins: Vec<rppal::gpio::OutputPin> = GPIO_PINS.into_iter()
+        .map(|pin_no| gpio.get(pin_no).unwrap().into_output())
+        .collect();
+    for pin in used_pins.iter_mut() {
+        pin.set_low();
+    }
+
+    // Prepare buffers
+    let mut reader = BufReader::new(stream);
+    let mut writer = BufWriter::new(stream);
+    
+    // Current channel
+    let channel_count = channels.len();
+    if channel_count == 0 {
+        tx_to_server.send(
+            Response::Failure(Failure::InvalidRequest(
+                "No channels are selected".to_string()
+            ))
+        ).await.unwrap();
+        return ()
+    }
+    let mut ch = channels[0] as usize;
+
+    // Prepare command bytes
+    let polling_cmd = ":MEAS?\n";
+    let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
+
+    // Set polling interval
     let mut _interval = tokio::time::interval(
         tokio::time::Duration::from_millis((interval * 1000.0) as u64)
     );
@@ -443,80 +462,50 @@ async fn poll_multi(
         logger::log_multi(
             device_name.to_string(),
             table_name.to_string(),
-            channel_count,
-            switch_delay,
-            channel_interval,
+            channels,
             interval,
             rx_from_client
         )
     );
-  
-    // Prepare command bytes
-    let polling_cmd = ":MEAS?\n";
-    let polling_cmd = ASCII.encode(polling_cmd, EncoderTrap::Replace).unwrap();
-  
-    // Prepare buffers
-    let mut reader = BufReader::new(stream);
-    let mut writer = BufWriter::new(stream);
 
     // Respond that the measurement has started
     tx_to_server.send(
         Response::Success(Success::SaveTable(table_name.to_string()))
     ).await.unwrap();
 
-    // Setup GPIO
-    let gpio = Gpio::new().unwrap();
-    let mut used_pins: Vec<rppal::gpio::OutputPin> = Vec::new();
-    for i in 0..GPIO_PINS.len() {
-        let pin = gpio.get(GPIO_PINS[i]).unwrap().into_output();
-        used_pins.push(pin);
-    }
+    // Set start time
+    let start_time = SystemTime::now();
     
     // Data polling loop
     loop {
 
-        // For a channel ID
-        for channel_id in 0..channel_count {
+        // Set HIGH for the target GPIO pin
+        used_pins[ch].set_high();
 
-            // Set HIGH or LOW for GPIO pins
-            for j in 0..used_pins.len() {
-                let pin = &mut used_pins[j];
-                if channel_id & (1 << j) > 0 {
-                    pin.set_high();
-                } else {
-                    pin.set_low();
-                }
-            }
+        // Wait for interval
+        _interval.tick().await;
 
-            // Wait for switch delay
-            _switch_delay.tick().await;
+        // Send polling command
+        writer.write(&polling_cmd).unwrap();
+        writer.flush().unwrap();
 
-            // Send polling command
-            writer.write(&polling_cmd).unwrap();
-            writer.flush().unwrap();
+        // Receive response
+        let mut buff = vec![0; 64];
+        let n = reader.read(&mut buff).unwrap();
 
-            // Receive response
-            let mut buff = vec![0; 64];
-            let n = reader.read(&mut buff).unwrap();
+        // end-measurement time
+        let meas_time = SystemTime::now()
+            .duration_since(start_time).unwrap()
+            .as_millis() as u64;
 
-            // end-measurement time
-            let meas_time = SystemTime::now()
-                .duration_since(start_time).unwrap()
-                .as_millis() as u64;
-
-            // Send value to logger
-            if n >= 2 {
-                let mut data_vec = meas_time.to_ne_bytes().to_vec();
-                data_vec.extend_from_slice(&channel_id.to_ne_bytes());
-                data_vec.extend_from_slice(&buff[..n]);
-                if let Err(e) = tx_to_logger.send(data_vec).await {
-                    println!("Failed to send {}", e)
-                };
-            }
-
-            // Wait for channel interval
-            _channel_interval.tick().await;
-
+        // Send value to logger
+        if n >= 2 {
+            let mut data_vec = meas_time.to_ne_bytes().to_vec();
+            data_vec.extend_from_slice(&ch.to_ne_bytes());
+            data_vec.extend_from_slice(&buff[..n]);
+            if let Err(e) = tx_to_logger.send(data_vec).await {
+                println!("Failed to send {}", e)
+            };
         }
 
         // Controll polling interval
@@ -533,7 +522,7 @@ async fn poll_multi(
                         Response::Failure(
                             Failure::Busy{
                                 table_name: table_name.to_string(),
-                                interval: "0.0".to_string(),
+                                interval: interval.to_string(),
                             }
                         )
                     ).await.unwrap()
@@ -542,7 +531,9 @@ async fn poll_multi(
             Err(_) => (),
         }
 
-        _interval.tick().await;
+        // Change the channel
+        used_pins[ch].set_low();
+        ch = (ch + 1) % channel_count;
 
     }
 
@@ -552,7 +543,7 @@ async fn poll_multi(
                 e.to_string()
             ))
         ).await.unwrap();
-    }else{
+    } else {
         tx_to_server.send(
             Response::Success(Success::Finished(
                 "Measurement successfully finished".to_string()

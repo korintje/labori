@@ -66,10 +66,8 @@ pub async fn prepare_tables_reg(mut conn: SqliteConnection, table_name: &str)
     if let Err(e) = conn.execute(
       sqlx::query(&format!(
         "CREATE TABLE IF NOT EXISTS '{}' (
-          table_name          TEXT NOT NULL,
-          channel_count       INTEGER NOT NULL,
-          switch_delay        REAL NOT NULL,
-          channel_interval    REAL NOT NULL,
+          table_name    TEXT NOT NULL,
+          channels      TEXT NOT NULL,
           interval      REAL NOT NULL
         )", REGISTRY_NAME
       ))
@@ -92,7 +90,6 @@ pub async fn prepare_tables_reg(mut conn: SqliteConnection, table_name: &str)
           time    REAL NOT NULL,
           channel INTEGER NOT NULL,
           freq    REAL NOT NULL,
-          rate    INTEGER NOT NULL
         )", table_name
       ))
     ).await {
@@ -280,9 +277,7 @@ pub async fn log_ext(
 pub async fn log_multi(
   device_name: String,
   table_name: String,
-  channel_count: u8,
-  switch_delay: f64,
-  channel_interval: f64,
+  channels: Vec<u8>,
   interval: f64,
   mut rx: mpsc::Receiver<Vec<u8>>
 ) -> Result<(), error::LaboriError> {
@@ -309,8 +304,11 @@ pub async fn log_multi(
 
   // Registry table name
   let reg_query = format!(
-    "INSERT INTO '{}' VALUES ({}, {}, {}, {}, {})", 
-    REGISTRY_NAME, table_name, channel_count, switch_delay, channel_interval, interval
+    "INSERT INTO '{}' VALUES ({}, {}, {})", 
+    REGISTRY_NAME,
+    table_name,
+    channels.into_iter().map(|byte| byte.to_string()).collect::<Vec<String>>().join(","),
+    interval
   );
   let _ = &conn.execute(sqlx::query(&reg_query)).await?;
 
@@ -330,7 +328,7 @@ pub async fn log_multi(
         if buff[0] == 4u8 {
           println!("Stop logging");
           break
-        }else{
+        } else {
           println!("Broken stream");
           continue
         }
@@ -343,7 +341,7 @@ pub async fn log_multi(
       // Decode to ASCII, parse to f64, and append to vec.
       let freq_ascii = ASCII.decode(&freq_u8s, DecoderTrap::Replace).unwrap();
       let freq_f64 = freq_ascii.parse::<f64>().unwrap();
-      values.push(format!("({}, {}, {}, {})", meas_time, channel_id, freq_f64, &freq_u8s.len()));
+      values.push(format!("({}, {}, {})", meas_time, channel_id, freq_f64));
 
       // Insert to sqlite db
       if values.len() >= batch_size {

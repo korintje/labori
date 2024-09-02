@@ -24,7 +24,7 @@ pub enum Command {
     Set { key: String, value: String },
     Run {},
     RunExt { duration: String },
-    RunMulti { channel_count: u8, switch_delay: f64, channel_interval: f64, interval: f64 },
+    RunMulti { channels: Vec<u8>, interval: f64 },
     Stop {},
 }
 
