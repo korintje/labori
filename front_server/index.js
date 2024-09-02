@@ -92,10 +92,25 @@ const stream = (socket, table_name, state) => {
   });
 };
 
+// ----- Old function for Backup --------
 // Get table list from DB
+// const get_tables = (socket) => {
+//   db.all("select name from sqlite_master where type='table'", function (_e, tables) {
+//     socket.emit("update_table_list", tables);
+//   });
+// };
+// ----- ----------------------- --------
+
+// Get table names from registry table
 const get_tables = (socket) => {
-  db.all("select name from sqlite_master where type='table'", function (_e, tables) {
-    socket.emit("update_table_list", tables);
+  db.all("SELECT table_name FROM registry", (err, registryRows) => {
+    if (err) {
+      console.error("Error fetching from registry table:", err);
+      socket.emit("update_table_list", []);
+      return;
+    }
+    const tableNames = registryRows.map(row => row.table_name);
+    socket.emit("update_table_list", tableNames);
   });
 };
 

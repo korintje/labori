@@ -61,10 +61,10 @@ function removeOptions(selectElement) {
 }
 
 // Function to download file
-function download_csv(xs, ys, table_name) {
-  let content = "time(sec),frequency(Hz)\n";
-  for (let [x, y] of zip(xs, ys)) {
-    content += `${x},${y}\n`;
+function download_csv(xs_0, ys_0, xs_1, ys_1, xs_2, ys_2, xs_3, ys_3, table_name) {
+  let content = "ch1_time(s),ch1_freq(Hz),ch2_time(s),ch2_freq(Hz),ch3_time(s),ch3_freq(Hz),ch4_time(s),ch4_freq(Hz)\n";
+  for (let [x0, y0, x1, y1, x2, y2, x3, y3] of zip(xs_0, ys_0, xs_1, ys_1, xs_2, ys_2, xs_3, ys_3)) {
+    content += `${x0},${y0},${x1},${y1},${x2},${y2},${x3},${y3}\n`;
   }
   const blob = new Blob([ content ], { "type" : "text/csv" });
   const link = document.createElement("a");
@@ -244,8 +244,14 @@ socket.on('connect', function() {
       socket.emit("run", interval, (response) => {
         show_response(response);
         if ("Success" in response) {
-          xs_live = [];
-          ys_live = [];
+          xs_live_0 = [];
+          xs_live_1 = [];
+          xs_live_2 = [];
+          xs_live_3 = [];
+          ys_live_0 = [];
+          ys_live_1 = [];
+          ys_live_2 = [];
+          ys_live_3 = [];
           // rs_live = [];
         }
       });
@@ -264,7 +270,7 @@ socket.on('connect', function() {
     let index = history_select.selectedIndex;
     let table_name = history_options[index].value;
     table_name = table_name.replaceAll(":", "-");
-    download_csv(xs, ys, table_name);
+    download_csv(xs_0, ys_0, xs_1, ys_1, xs_2, ys_2, xs_3, ys_3, table_name);
   });
 
   // Remove button
