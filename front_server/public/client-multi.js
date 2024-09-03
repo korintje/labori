@@ -61,17 +61,19 @@ function removeOptions(selectElement) {
 }
 
 // Function to download file
-function download_csv(xs_0, ys_0, xs_1, ys_1, xs_2, ys_2, xs_3, ys_3, table_name) {
-  let content = "ch1_time(s),ch1_freq(Hz),ch2_time(s),ch2_freq(Hz),ch3_time(s),ch3_freq(Hz),ch4_time(s),ch4_freq(Hz)\n";
-  for (let [x0, y0, x1, y1, x2, y2, x3, y3] of zip(xs_0, ys_0, xs_1, ys_1, xs_2, ys_2, xs_3, ys_3)) {
-    content += `${x0},${y0},${x1},${y1},${x2},${y2},${x3},${y3}\n`;
+function download_csv(data, table_name) {
+  for (let i = 0; i < 4; i++) {
+    let content = "time(s),freq(Hz)\n";
+    for (let [x, y] of zip(data[i][0], data[i][1])) {
+      content += `${x},${y}\n`;
+    }
+    const blob = new Blob([ content ], { "type" : "text/csv" });
+    const link = document.createElement("a");
+    link.download = `${table_name}-ch${i + 1}.csv`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
   }
-  const blob = new Blob([ content ], { "type" : "text/csv" });
-  const link = document.createElement("a");
-  link.download = `${table_name}.csv`;
-  link.href = URL.createObjectURL(blob);
-  link.click();
-  URL.revokeObjectURL(link.href);
 }
 
 // Plotly parameters
@@ -97,7 +99,6 @@ let ys_live_0 = [];
 let ys_live_1 = [];
 let ys_live_2 = [];
 let ys_live_3 = [];
-// let rs_live = [];
 let xs_0 = [];
 let xs_1 = [];
 let xs_2 = [];
@@ -106,7 +107,6 @@ let ys_0 = [];
 let ys_1 = [];
 let ys_2 = [];
 let ys_3 = [];
-// let rs = [];
 Plotly.newPlot( MONITOR_VIEW_0, [{ x: xs_live_0, y: ys_live_0 }], layout, config );
 Plotly.newPlot( MONITOR_VIEW_1, [{ x: xs_live_1, y: ys_live_1 }], layout, config );
 Plotly.newPlot( MONITOR_VIEW_2, [{ x: xs_live_2, y: ys_live_2 }], layout, config );
@@ -147,30 +147,26 @@ socket.on("init_monitor", () => {
   ys_live_1 = [];
   ys_live_2 = [];
   ys_live_3 = [];
-  // rs_live = [];
 });
 
 // Update monitor view
 socket.on("update_monitor", (data) => {
-  data.forEach(function(datum){
+  data.forEach(function(datum) {
     let ch = datum["channel"];
     if (ch == 0) {
-      xs_live_0.push(datum["time"]);
+      xs_live_0.push(datum["start_time"]);
       ys_live_0.push(datum["freq"]);
     } else if (ch == 1) {
-      xs_live_1.push(datum["time"]);
+      xs_live_1.push(datum["start_time"]);
       ys_live_1.push(datum["freq"]);
     } else if (ch == 2) {
-      xs_live_2.push(datum["time"]);
+      xs_live_2.push(datum["start_time"]);
       ys_live_2.push(datum["freq"]);
     } else if (ch == 3) {
-      xs_live_3.push(datum["time"]);
+      xs_live_3.push(datum["start_time"]);
       ys_live_3.push(datum["freq"]);
     }
-    // rs_live.push(datum["rate"]);
   });
-  // const sent_byte_amount = rs_live[rs_live.length - 1];
-  // layout.title = `Network occupancy: ${sent_byte_amount} / 1024`; 
   Plotly.newPlot(MONITOR_VIEW_0, [{ x: xs_live_0, y: ys_live_0 }], layout, config );
   Plotly.newPlot(MONITOR_VIEW_1, [{ x: xs_live_1, y: ys_live_1 }], layout, config );
   Plotly.newPlot(MONITOR_VIEW_2, [{ x: xs_live_2, y: ys_live_2 }], layout, config );
@@ -194,7 +190,6 @@ socket.on('connect', function() {
   ys_live_1 = [];
   ys_live_2 = [];
   ys_live_3 = [];
-  // rs_live = [];
   Plotly.newPlot( MONITOR_VIEW_0, [{ x: xs_live_0, y: ys_live_0 }], layout, config );
   Plotly.newPlot( MONITOR_VIEW_1, [{ x: xs_live_1, y: ys_live_1 }], layout, config );
   Plotly.newPlot( MONITOR_VIEW_2, [{ x: xs_live_2, y: ys_live_2 }], layout, config );
@@ -241,7 +236,7 @@ socket.on('connect', function() {
     let interval = interval_options[index].value;
     socket.emit("set_interval", interval, (response) => {
       show_response(response);
-      socket.emit("run", interval, (response) => {
+      socket.emit("run_multi", interval, (response) => {
         show_response(response);
         if ("Success" in response) {
           xs_live_0 = [];
@@ -252,7 +247,6 @@ socket.on('connect', function() {
           ys_live_1 = [];
           ys_live_2 = [];
           ys_live_3 = [];
-          // rs_live = [];
         }
       });
     });
@@ -270,7 +264,7 @@ socket.on('connect', function() {
     let index = history_select.selectedIndex;
     let table_name = history_options[index].value;
     table_name = table_name.replaceAll(":", "-");
-    download_csv(xs_0, ys_0, xs_1, ys_1, xs_2, ys_2, xs_3, ys_3, table_name);
+    download_csv([[xs_0, ys_0], [xs_1, ys_1], [xs_2, ys_2], [xs_3, ys_3]], table_name);
   });
 
   // Remove button

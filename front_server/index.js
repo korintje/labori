@@ -151,8 +151,8 @@ io.on("connection", (socket) => {
 
   // Read database multichannel
   socket.on("read_db_multi", (table, callback)  => {
-    console.log(`select time,channel,freq from '${table}'`);
-    db.all(`select time,channel,freq from '${table}'`, (_err, data) => {
+    console.log(`select channel,start_time,end_time,freq from '${table}'`);
+    db.all(`select channel,start_time,end_time,freq from '${table}'`, (_err, data) => {
       if (data !== undefined) {
         let ts_0 = [];
         let fs_0 = [];
@@ -165,16 +165,16 @@ io.on("connection", (socket) => {
         data.forEach(datum => {
           let ch = datum["channel"];
           if (ch == 0) {
-            ts_0.push(datum["time"]);
+            ts_0.push(datum["start_time"]);
             fs_0.push(datum["freq"]);
           } else if (ch == 1) {
-            ts_1.push(datum["time"]);
+            ts_1.push(datum["start_time"]);
             fs_1.push(datum["freq"]);
           } else if (ch == 2) {
-            ts_2.push(datum["time"]);
+            ts_2.push(datum["start_time"]);
             fs_2.push(datum["freq"]);
           } else if (ch == 3) {
-            ts_3.push(datum["time"]);
+            ts_3.push(datum["start_time"]);
             fs_3.push(datum["freq"]);
           }      
         });
@@ -221,10 +221,9 @@ io.on("connection", (socket) => {
   });
 
   // Run measurement
-  socket.on('run_multi', (duration, callback) => {
+  socket.on('run_multi', (interval, callback) => {
 
-    /* To use external clock e.g. Raspberry pi: */
-    const client = connect_TCP(`{"RunMulti": {"duration": "${duration}"}}`)
+    const client = connect_TCP(`{"RunMulti": {"interval": "${interval}"}}`)
 
     client.on('data', data => {
       console.log('Received from TCP server: ' + data);

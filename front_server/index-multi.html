@@ -2,76 +2,64 @@
 <html lang="en">
   <head>
     <link rel="shortcut icon" href="/app/qcm/favicon.ico">
-    <link href="/app/qcm/style.css" rel="stylesheet" type="text/css" media="all">
+    <link href="/app/qcm/style-multi.css" rel="stylesheet" type="text/css" media="all">
   </head>
   <body>
 
     <div id="monitor_wrapper" class="wrapper">
       <div class="graph_box">
         <div id="monitor0" class="graph"></div>
-      </div>
-      <div class="graph_box">
         <div id="monitor1" class="graph"></div>
-      </div>
-      <div class="graph_box">
         <div id="monitor2" class="graph"></div>
-      </div>
-      <div class="graph_box">
         <div id="monitor3" class="graph"></div>
       </div>
-      <div id="monitor_handler" class="handler">
-        <div class="select_box">
-          <label for="interval_select" class="label">Set Interval</label>
-          <select id="interval_select">
-            <option value="10.0E+0">10 sec</option>
-            <option value="1.0E+0">1 sec</option>
-            <option value="0.10E+0">100 msec</option>
-            <option value="10E-3">10 msec</option>
-            <option value="1.0E-3">1 msec</option>
-          </select>
-        </div>
-        <div class="button_box">
-          <button id="run" class="my_button">Run</button>
-          <button id="stop" class="my_button">Stop</button>
-        </div>
+    </div>
+
+    <div id="monitor_handler" class="handler">
+      <div id="select_box" class="select_box">
+        <label for="interval_select" class="label">Set Interval</label>
+        <select id="interval_select">
+          <option value="10.0E+0">10 sec</option>
+          <option value="1.0E+0">1 sec</option>
+          <option value="0.10E+0">100 msec</option>
+          <option value="10E-3">10 msec</option>
+          <option value="1.0E-3">1 msec</option>
+        </select>
+      </div>
+      <div id="button_box" class="button_box">
+        <button id="run" class="my_button">Run</button>
+        <button id="stop" class="my_button">Stop</button>
+      </div>
+      <div id="indicator_wrapper" class="wrapper">
+        <table>
+          <tr>
+              <th><label for="socket" class="label_left">Connection:</label></th>
+              <td><input type="text" value="waiting..." id="socket" class="field_left" readonly></td>
+          </tr>
+          <tr>
+              <th><label for="response_field" class="label_left">Response:&nbsp;&nbsp;</label></th>
+              <td><input type="text" value="" id="response_field" class="field_left" readonly></td>
+          </tr>
+        </table>
       </div>
     </div>
 
     <div id="history_wrapper" class="wrapper">
       <div class="graph_box">
         <div id="history0" class="graph"></div>
-      </div>
-      <div class="graph_box">
         <div id="history1" class="graph"></div>
-      </div>
-      <div class="graph_box">
         <div id="history2" class="graph"></div>
-      </div>
-      <div class="graph_box">
         <div id="history3" class="graph"></div>
       </div>
       <div id="history_handler" class="handler">
-        <div class="select_box">
+        <div id="history_select_box" class="select_box">
           <select id="history_select" size="11"></select>
         </div>
-        <div class="button_box">
+        <div id="history_button_box" class="button_box">
           <button id="save_csv_history" class="my_button">Save as CSV</button>
           <button id="remove" class="my_button">Remove Data</button>
         </div>
       </div>
-    </div>
-
-    <div id="indicator_wrapper" class="wrapper">
-      <table>
-        <tr>
-            <th><label for="socket" class="label_left">Connection:</label></th>
-            <td><input type="text" value="waiting..." id="socket" class="field_left" readonly></td>
-        </tr>
-        <tr>
-            <th><label for="response_field" class="label_left">Response:&nbsp;&nbsp;</label></th>
-            <td><input type="text" value="" id="response_field" class="field_left" readonly></td>
-        </tr>
-      </table>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>

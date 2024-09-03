@@ -87,9 +87,10 @@ pub async fn prepare_tables_reg(mut conn: SqliteConnection, table_name: &str)
     if let Err(e) = conn.execute(
       sqlx::query(&format!(
         "CREATE TABLE IF NOT EXISTS '{}' (
-          time    REAL NOT NULL,
-          channel INTEGER NOT NULL,
-          freq    REAL NOT NULL,
+          channel       INTEGER NOT NULL,
+          start_time    REAL NOT NULL,
+          end_time      REAL NOT NULL,
+          freq          REAL NOT NULL
         )", table_name
       ))
     ).await {
@@ -322,7 +323,8 @@ pub async fn log_multi(
 
       // Check and remove LF at the end of the buff
       let freq_u8s: Vec<u8>;
-      let meas_time: f64;
+      let start_meas_time: f64;
+      let end_meas_time: f64;
       let channel_id: u8; 
       if buff.last() != Some(&10u8) {
         if buff[0] == 4u8 {
@@ -333,15 +335,16 @@ pub async fn log_multi(
           continue
         }
       } else {
-        meas_time = u64::from_ne_bytes(buff[0..8].try_into().unwrap()) as f64 / 1000.0;
-        channel_id = u8::from_ne_bytes(buff[8..9].try_into().unwrap());
+        start_meas_time = u64::from_ne_bytes(buff[0..8].try_into().unwrap()) as f64 / 1000.0;
+        end_meas_time = u64::from_ne_bytes(buff[8..16].try_into().unwrap()) as f64 / 1000.0;
+        channel_id = u8::from_ne_bytes(buff[16..17].try_into().unwrap());
         freq_u8s = buff[9..buff.len()-1].to_vec();
       }
 
       // Decode to ASCII, parse to f64, and append to vec.
       let freq_ascii = ASCII.decode(&freq_u8s, DecoderTrap::Replace).unwrap();
       let freq_f64 = freq_ascii.parse::<f64>().unwrap();
-      values.push(format!("({}, {}, {})", meas_time, channel_id, freq_f64));
+      values.push(format!("({}, {}, {}, {})", channel_id, start_meas_time, end_meas_time, freq_f64));
 
       // Insert to sqlite db
       if values.len() >= batch_size {

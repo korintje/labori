@@ -11,7 +11,6 @@ use chrono::Local;
 use std::time::SystemTime;
 use rppal::gpio::Gpio;
 
-// const GPIO_PINS: [u8;4] = [17, 27, 22, 23];
 const GPIO_PINS: [u8;6] = [17, 27, 22, 23, 24, 25];
 
 pub async fn connect(
@@ -83,10 +82,6 @@ pub async fn connect(
                 match get_stream(device_addr) {
                     Some(stream) => {
                         send_cmd(&stream, &tx_to_server, &cmd).await;
-                        // let _channel_count: u8 = channel_count.parse::<u8>().unwrap();
-                        // let _switch_delay: f64 = switch_delay.parse::<f64>().unwrap();
-                        // let _channel_interval: f64 = channel_interval.parse::<f64>().unwrap();
-                        // let _interval: f64 = interval.parse::<f64>().unwrap();
                         poll_multi(
                             &device_name,
                             &stream,
@@ -347,12 +342,6 @@ async fn poll_ext(
         let n = reader.read(&mut buff).unwrap();
 
         // end-measurement time
-        /*
-        let end_time = SystemTime::now()
-            .duration_since(start_time).unwrap()
-            .as_millis() as f64;
-        let meas_time = (pre_time + end_time) as f64 / 2.0;
-        */
         let meas_time = SystemTime::now()
             .duration_since(start_time).unwrap()
             .as_millis() as u64;
@@ -485,6 +474,11 @@ async fn poll_multi(
         // Wait for interval
         _interval.tick().await;
 
+        // start-measurement time
+        let start_meas_time = SystemTime::now()
+            .duration_since(start_time).unwrap()
+            .as_millis() as u64;
+
         // Send polling command
         writer.write(&polling_cmd).unwrap();
         writer.flush().unwrap();
@@ -494,13 +488,14 @@ async fn poll_multi(
         let n = reader.read(&mut buff).unwrap();
 
         // end-measurement time
-        let meas_time = SystemTime::now()
+        let end_meas_time = SystemTime::now()
             .duration_since(start_time).unwrap()
             .as_millis() as u64;
 
         // Send value to logger
         if n >= 2 {
-            let mut data_vec = meas_time.to_ne_bytes().to_vec();
+            let mut data_vec = start_meas_time.to_ne_bytes().to_vec();
+            data_vec.extend_from_slice(&end_meas_time.to_ne_bytes());
             data_vec.extend_from_slice(&ch.to_ne_bytes());
             data_vec.extend_from_slice(&buff[..n]);
             if let Err(e) = tx_to_logger.send(data_vec).await {
