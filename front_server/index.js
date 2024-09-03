@@ -5,6 +5,7 @@ const http = require("http").Server(app);
 const io = require("socket.io")(http);
 const sqlite3 = require("sqlite3");
 const net = require('net');
+const { Buffer } = require('buffer');
 
 // Global constants
 TCP_PORT = 50001;
@@ -223,7 +224,31 @@ io.on("connection", (socket) => {
   // Run measurement
   socket.on('run_multi', (interval, callback) => {
 
-    const client = connect_TCP(`{"RunMulti": {"interval": "${interval}"}}`)
+    let interval_f64 = 1.0;
+    if (interval === "10.0E+0") {
+      interval_f64 = 10.0;
+    } else if (interval === "1.0E+0") {
+      interval_f64 = 1.0;
+    } else if (interval === "0.10E+0") {
+      interval_f64 = 0.1;
+    } else if (interval === "10E-3") {
+      interval_f64 = 0.01;
+    } else if (interval === "1.0E-3") {
+      interval_f64 = 0.001;
+    }
+
+    // RunMulti オブジェクトの例
+    const jsonBody = {
+      RunMulti: {
+        channels: [0, 1, 2, 3],
+        interval: interval_f64
+      }
+    };
+    const jsonString = JSON.stringify(jsonBody);
+    const jsonBuffer = Buffer.from(jsonString, 'utf-8');
+
+    // const client = connect_TCP(`{"RunMulti": {"interval": ${interval_f64}, "channels": "[0,1,2,3]"}}`)
+    const client = connect_TCP(jsonBuffer);
 
     client.on('data', data => {
       console.log('Received from TCP server: ' + data);

@@ -282,6 +282,8 @@ pub async fn log_multi(
   interval: f64,
   mut rx: mpsc::Receiver<Vec<u8>>
 ) -> Result<(), error::LaboriError> {
+
+  println!("log_multi");
   
   // Determine batch size for SQL insertion
   let batch_size;
@@ -304,6 +306,7 @@ pub async fn log_multi(
   let mut conn = prepare_tables_reg(conn, &table_name).await?;
 
   // Registry table name
+  /*
   let reg_query = format!(
     "INSERT INTO '{}' VALUES ({}, {}, {})", 
     REGISTRY_NAME,
@@ -312,6 +315,7 @@ pub async fn log_multi(
     interval
   );
   let _ = &conn.execute(sqlx::query(&reg_query)).await?;
+  */
 
   // Insert atom parameters into the table
   let query_head = format!("INSERT INTO '{}' VALUES ", &table_name);
@@ -320,6 +324,8 @@ pub async fn log_multi(
   println!("Start logging");
 
   while let Some(buff) = rx.recv().await {
+
+      println!("here");
 
       // Check and remove LF at the end of the buff
       let freq_u8s: Vec<u8>;
@@ -338,12 +344,14 @@ pub async fn log_multi(
         start_meas_time = u64::from_ne_bytes(buff[0..8].try_into().unwrap()) as f64 / 1000.0;
         end_meas_time = u64::from_ne_bytes(buff[8..16].try_into().unwrap()) as f64 / 1000.0;
         channel_id = u8::from_ne_bytes(buff[16..17].try_into().unwrap());
-        freq_u8s = buff[9..buff.len()-1].to_vec();
+        freq_u8s = buff[17..buff.len()-1].to_vec();
       }
 
       // Decode to ASCII, parse to f64, and append to vec.
       let freq_ascii = ASCII.decode(&freq_u8s, DecoderTrap::Replace).unwrap();
+      // println!("(freq_ascii: {})", freq_ascii);
       let freq_f64 = freq_ascii.parse::<f64>().unwrap();
+      // println!("({}, {}, {}, {})", channel_id, start_meas_time, end_meas_time, freq_f64);
       values.push(format!("({}, {}, {}, {})", channel_id, start_meas_time, end_meas_time, freq_f64));
 
       // Insert to sqlite db

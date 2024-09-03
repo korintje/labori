@@ -433,7 +433,7 @@ async fn poll_multi(
         ).await.unwrap();
         return ()
     }
-    let mut ch = channels[0] as usize;
+    let mut ch = channels[0];
 
     // Prepare command bytes
     let polling_cmd = ":MEAS?\n";
@@ -469,7 +469,8 @@ async fn poll_multi(
     loop {
 
         // Set HIGH for the target GPIO pin
-        used_pins[ch].set_high();
+        let ch_idx = ch as usize;
+        used_pins[ch_idx].set_high();
 
         // Wait for interval
         _interval.tick().await;
@@ -527,12 +528,13 @@ async fn poll_multi(
         }
 
         // Change the channel
-        used_pins[ch].set_low();
-        ch = (ch + 1) % channel_count;
+        used_pins[ch_idx].set_low();
+        ch = (ch + 1) % channel_count as u8;
 
     }
 
     if let Err(e) = log_handle.await.unwrap() {
+        println!("{}", e.to_string());
         tx_to_server.send(
             Response::Failure(Failure::SaveDataFailed(
                 e.to_string()
