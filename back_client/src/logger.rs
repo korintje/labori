@@ -349,9 +349,7 @@ pub async fn log_multi(
 
       // Decode to ASCII, parse to f64, and append to vec.
       let freq_ascii = ASCII.decode(&freq_u8s, DecoderTrap::Replace).unwrap();
-      // println!("(freq_ascii: {})", freq_ascii);
       let freq_f64 = freq_ascii.parse::<f64>().unwrap();
-      // println!("({}, {}, {}, {})", channel_id, start_meas_time, end_meas_time, freq_f64);
       values.push(format!("({}, {}, {}, {})", channel_id, start_meas_time, end_meas_time, freq_f64));
 
       // Insert to sqlite db
