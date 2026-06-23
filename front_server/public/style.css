@@ -1,5 +1,8 @@
 body {
   font-family: sans-serif;
+  margin: 0;
+  padding: 0 12px 12px;
+  background: #f4f6f8;
 }
 
 .wrapper {
@@ -7,6 +10,8 @@ body {
   background-color: #cecece;
   width: 100%;
   margin: 1% 0% 0% 0%;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .graph {
@@ -59,11 +64,35 @@ body {
   width: 48%;
   height: 100%;
   min-height: 50px;
+  cursor: pointer;
+}
+
+.my_button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.danger {
+  color: #8b0000;
 }
 
 
 .field_left {
   width: 95%;
+}
+
+@media (max-width: 800px) {
+  .wrapper,
+  .graph_box,
+  .handler {
+    display: block;
+    width: 100%;
+  }
+
+  .handler {
+    padding: 8px;
+    box-sizing: border-box;
+  }
 }
 
 /*

@@ -1,312 +1,424 @@
-// Import mudules
-const app  = require("express")();
+const fs = require("fs");
+const path = require("path");
 const express = require("express");
+const net = require("net");
+const sqlite3 = require("sqlite3");
+const toml = require("toml");
+
+const app = express();
 const http = require("http").Server(app);
 const io = require("socket.io")(http);
-const sqlite3 = require("sqlite3");
-const net = require('net');
-const { Buffer } = require('buffer');
 
-// Global constants
-TCP_PORT = 50001;
-WS_PORT = 3000;
-SAMPLE_RATE = 100;
+const configPath = path.join(__dirname, "config.toml");
+const config = toml.parse(fs.readFileSync(configPath, "utf-8"));
+const TCP_HOST = config.TCP_client.address;
+const TCP_PORT = config.TCP_client.port;
+const TCP_TIMEOUT = config.TCP_client.timeout_ms ?? 10000;
+const WS_HOST = config.WS_server.address;
+const WS_PORT = config.WS_server.port;
+const SAMPLE_RATE = config.database.sampling_rate;
+const DB_PATH = path.resolve(__dirname, config.database.path);
+const RESERVED_TABLES = new Set(["registry", "sqlite_sequence"]);
 
-// Database connection
-const db = new sqlite3.Database("../back_client/Iwatsu.db");
+const db = new sqlite3.Database(DB_PATH);
+let activeTable = null;
 
-// Return index.html and static files directory path
-app.get('/app/qcm', (_, res) => { res.sendFile(__dirname + '/index.html'); });
-app.use('/app/qcm', express.static(__dirname + "/public"));
-app.get('/app/qcm-multi', (_, res) => { res.sendFile(__dirname + '/index-multi.html'); });
-app.use('/app/qcm-multi', express.static(__dirname + "/public"));
+app.get("/app/qcm", (_, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.use("/app/qcm", express.static(path.join(__dirname, "public")));
+app.get("/app/qcm-multi", (_, res) => res.sendFile(path.join(__dirname, "index-multi.html")));
+app.use("/app/qcm-multi", express.static(path.join(__dirname, "public")));
 
-// Listen websocket port
-http.listen(WS_PORT, function(){
-  console.log(`listening on *:${WS_PORT}`);
+http.listen(WS_PORT, WS_HOST, () => {
+  console.log(`listening on http://${WS_HOST}:${WS_PORT}`);
+  console.log(`database: ${DB_PATH}`);
 });
 
-// Be a client of TCP server
-const connect_TCP = (cmd) => {
-  const client = net.connect(TCP_PORT, 'localhost', () => {
-    console.log('connected to TCP server');
-    client.write(cmd);
-  });
-  return client;
-};
+function requestBackend(command, callback) {
+  const client = net.connect(TCP_PORT, TCP_HOST);
+  let response = "";
+  let completed = false;
 
-// Pass response from back client to websocket client
-const path_through = (callback, cmd) => {
-  const client = connect_TCP(cmd);
-  client.on('data', data => {
-    console.log('Received from TCP server: ' + data);
-    callback(JSON.parse(data));
-  });  
-};
-
-// Check wheather polling process is running
-const check_run = (socket, state) => {
-  const client = connect_TCP(`{"Get": {"key": "Interval"}}`);
-  client.on('data', data => {
-    console.log('Received from TCP server: ' + data);
-    const json_data = JSON.parse(data);
-    if ("Success" in json_data) {
-      const interval = json_data["Success"]["GotValue"];
-      socket.emit("update_interval", interval);
-    } else if ("Failure" in json_data) {
-      if ("Busy" in json_data["Failure"]) {
-        const table_name = json_data["Failure"]["Busy"]["table_name"];
-        const interval = json_data["Failure"]["Busy"]["interval"];
-        socket.emit("update_interval", interval); 
-        state["last_rowid"] = 0;
-        state["streaming"] = setInterval(
-          () => { stream(socket, table_name, state); }, SAMPLE_RATE
-        );
-      }
-    }
-  });  
-};
-
-//  Get and update interval value
-const get_and_update_interval = (socket) => {
-  const client = connect_TCP(`{"Get": {"key": "Interval"}}`);
-  client.on('data', data => {
-    console.log('Received from TCP server: ' + data);
-    const json_data = JSON.parse(data);
-    if ("Success" in json_data) {
-      const interval = json_data["Success"]["GotValue"];
-      socket.emit("update_interval", interval);
-    }
-  }); 
-}
-
-// Stream data from given database
-const stream = (socket, table_name, state) => {
-  db.all(`select *, rowid from '${table_name}' where rowid>${state["last_rowid"]}`, (_e, data) => {
-    if (data !== undefined) {
-      let last_row = data[data.length - 1];
-      if (last_row !== undefined) {
-        state["last_rowid"] = last_row["rowid"];
-        socket.emit("update_monitor", data);
-      }
-    }
-  });
-};
-
-// ----- Old function for Backup --------
-// Get table list from DB
-// const get_tables = (socket) => {
-//   db.all("select name from sqlite_master where type='table'", function (_e, tables) {
-//     socket.emit("update_table_list", tables);
-//   });
-// };
-// ----- ----------------------- --------
-
-// Get table names from registry table
-const get_tables = (socket) => {
-  db.all("SELECT table_name FROM registry", (err, registryRows) => {
-    if (err) {
-      console.error("Error fetching from registry table:", err);
-      socket.emit("update_table_list", []);
+  const finish = () => {
+    if (completed || response.trim() === "") {
       return;
     }
-    const tableNames = registryRows.map(row => row.table_name);
-    socket.emit("update_table_list", tableNames);
-  });
-};
-
-
-// Client connection event
-io.on("connection", (socket) => {
-
-  // Streaming state
-  let state = {"streaming": () => {}, "last_rowid": 0,}
-
-  // Check run and interval
-  console.log("a client connected")
-  check_run(socket, state);
-  get_tables(socket);
-
-  // Reset last Row ID if client disconnected
-  socket.on("disconnect", () => {
-    state["last_rowid"] = 0;
-    console.log("client disconnected")
-  });
-
-  // Read database
-  socket.on("read_db", (table, callback)  => {
-    console.log(`select time,freq from '${table}'`);
-    db.all(`select time,freq from '${table}'`, (_err, data) => {
-      if (data !== undefined) {
-        let ts = [];
-        let fs = [];
-        data.forEach(datum => {
-          ts.push(datum["time"]);
-          fs.push(datum["freq"]);          
-        });
-        console.log(`${data.length} data has sent.`);
-        callback([ts,fs]);
-      }
-    });
-  });
-
-  // Read database multichannel
-  socket.on("read_db_multi", (table, callback)  => {
-    console.log(`select channel,start_time,end_time,freq from '${table}'`);
-    db.all(`select channel,start_time,end_time,freq from '${table}'`, (_err, data) => {
-      if (data !== undefined) {
-        let ts_0 = [];
-        let fs_0 = [];
-        let ts_1 = [];
-        let fs_1 = [];
-        let ts_2 = [];
-        let fs_2 = [];
-        let ts_3 = [];
-        let fs_3 = [];
-        data.forEach(datum => {
-          let ch = datum["channel"];
-          if (ch == 0) {
-            ts_0.push(datum["start_time"]);
-            fs_0.push(datum["freq"]);
-          } else if (ch == 1) {
-            ts_1.push(datum["start_time"]);
-            fs_1.push(datum["freq"]);
-          } else if (ch == 2) {
-            ts_2.push(datum["start_time"]);
-            fs_2.push(datum["freq"]);
-          } else if (ch == 3) {
-            ts_3.push(datum["start_time"]);
-            fs_3.push(datum["freq"]);
-          }      
-        });
-        console.log(`${data.length} data has sent.`);
-        callback([[ts_0,fs_0],[ts_1,fs_1],[ts_2,fs_2],[ts_3,fs_3]]);
-      }
-    });
-  });
-
-  // Get Interval
-  socket.on('get_interval', (_arg, callback) => {
-    path_through(callback, `{"Get": {"key": "Interval"}}`);
-  });
-  
-  // Set Interval
-  socket.on('set_interval', (interval, callback) => {
-    path_through(callback, `{"Set": {"key": "Interval", "value": "${interval}"}}`);
-  });
-  
-  // Run measurement
-  socket.on('run', (duration, callback) => {
-    
-    /* To use internal clock in the counter: */
-    // const client = connect_TCP(`{"Run": {}}`);
-    
-    /* To use external clock e.g. Raspberry pi: */
-    const client = connect_TCP(`{"RunExt": {"duration": "${duration}"}}`)
-
-    client.on('data', data => {
-      console.log('Received from TCP server: ' + data);
-      const json_data = JSON.parse(data);
-      if ("Success" in json_data) {
-        const table_name = json_data["Success"]["SaveTable"];
-        state["last_rowid"] = 0;
-        state["streaming"] = setInterval(
-          () => { stream(socket, table_name, state); }, SAMPLE_RATE
-        );
-      } else if ("Failure" in json_data) {
-        ;
-      }
-      callback(json_data);
-    });
-    get_tables(socket);
-  });
-
-  // Run measurement
-  socket.on('run_multi', (interval, callback) => {
-
-    let interval_f64 = 1.0;
-    if (interval === "10.0E+0") {
-      interval_f64 = 10.0;
-    } else if (interval === "1.0E+0") {
-      interval_f64 = 1.0;
-    } else if (interval === "0.10E+0") {
-      interval_f64 = 0.1;
-    } else if (interval === "10E-3") {
-      interval_f64 = 0.01;
-    } else if (interval === "1.0E-3") {
-      interval_f64 = 0.001;
+    completed = true;
+    try {
+      callback(JSON.parse(response));
+    } catch (error) {
+      callback({ Failure: { InvalidReturn: error.message } });
     }
+  };
 
-    // RunMulti オブジェクトの例
-    const jsonBody = {
-      RunMulti: {
-        channels: [0, 1, 2, 3],
-        interval: interval_f64
+  client.setEncoding("utf8");
+  client.setTimeout(TCP_TIMEOUT);
+  client.on("connect", () => client.write(`${command}\n`));
+  client.on("data", data => {
+    response += data;
+    if (response.includes("\n")) {
+      finish();
+      client.end();
+    }
+  });
+  client.on("end", finish);
+  client.on("timeout", () => {
+    if (!completed) {
+      completed = true;
+      callback({
+        Failure: {
+          MachineNotRespond: `Backend response timed out after ${TCP_TIMEOUT} ms`,
+        },
+      });
+    }
+    client.destroy();
+  });
+  client.on("error", error => {
+    if (!completed) {
+      completed = true;
+      callback({ Failure: { MachineNotRespond: error.message } });
+    }
+  });
+}
+
+function quoteIdentifier(identifier) {
+  return `"${String(identifier).replaceAll('"', '""')}"`;
+}
+
+function getRegisteredTable(tableName, callback) {
+  if (
+    typeof tableName !== "string" ||
+    tableName.length === 0 ||
+    RESERVED_TABLES.has(tableName)
+  ) {
+    callback(new Error(`Invalid measurement table: ${tableName}`));
+    return;
+  }
+  db.get(
+    "SELECT table_name, channels, interval FROM registry WHERE table_name = ?",
+    [tableName],
+    (registryError, row) => {
+      if (row) {
+        callback(null, row);
+        return;
       }
-    };
-    const jsonString = JSON.stringify(jsonBody);
-    const jsonBuffer = Buffer.from(jsonString, 'utf-8');
+      db.all(
+        `PRAGMA table_info(${quoteIdentifier(tableName)})`,
+        (tableError, columns = []) => {
+          if (tableError || columns.length === 0) {
+            callback(new Error(`Unknown measurement table: ${tableName}`));
+            return;
+          }
+          const columnNames = new Set(columns.map(column => column.name));
+          const isSingle =
+            columnNames.has("time") &&
+            columnNames.has("freq") &&
+            columnNames.has("rate");
+          const isMulti =
+            columnNames.has("channel") &&
+            columnNames.has("start_time") &&
+            columnNames.has("end_time") &&
+            columnNames.has("freq");
+          if (!isSingle && !isMulti) {
+            callback(new Error(`Invalid measurement table: ${tableName}`));
+            return;
+          }
+          callback(null, {
+            table_name: tableName,
+            channels: isMulti ? "0,1,2,3" : "0",
+            interval: 0,
+          });
+        }
+      );
+    }
+  );
+}
 
-    // const client = connect_TCP(`{"RunMulti": {"interval": ${interval_f64}, "channels": "[0,1,2,3]"}}`)
-    const client = connect_TCP(jsonBuffer);
+function getTables(socket) {
+  db.all(
+    "SELECT name FROM sqlite_master " +
+      "WHERE type = 'table' AND name NOT IN ('registry', 'sqlite_sequence') " +
+      "ORDER BY name DESC",
+    (_tableError, tables = []) => {
+      db.all(
+        "SELECT table_name, channels, interval FROM registry ORDER BY rowid DESC",
+        (_registryError, registryRows = []) => {
+          const registered = new Map(
+            registryRows.map(row => [row.table_name, row])
+          );
+          const rows = [];
+          let pending = tables.length;
 
-    client.on('data', data => {
-      console.log('Received from TCP server: ' + data);
-      const json_data = JSON.parse(data);
-      if ("Success" in json_data) {
-        const table_name = json_data["Success"]["SaveTable"];
-        state["last_rowid"] = 0;
-        state["streaming"] = setInterval(
-          () => { stream(socket, table_name, state); }, SAMPLE_RATE
-        );
-      } else if ("Failure" in json_data) {
-        console.log("Failure in json data");
+          if (pending === 0) {
+            socket.emit("update_table_list", rows);
+            return;
+          }
+
+          for (const { name } of tables) {
+            if (registered.has(name)) {
+              rows.push(registered.get(name));
+              if (--pending === 0) socket.emit("update_table_list", rows);
+              continue;
+            }
+
+            // Infer the mode for databases created before registry entries existed.
+            db.all(`PRAGMA table_info(${quoteIdentifier(name)})`, (_error, columns = []) => {
+              const isMulti = columns.some(column => column.name === "channel");
+              rows.push({
+                table_name: name,
+                channels: isMulti ? "0,1,2,3" : "0",
+                interval: 0,
+              });
+              if (--pending === 0) socket.emit("update_table_list", rows);
+            });
+          }
+        }
+      );
+    }
+  );
+}
+
+function stream(socket, tableName, state) {
+  if (state.queryInFlight) {
+    return;
+  }
+  state.queryInFlight = true;
+  const table = quoteIdentifier(tableName);
+  db.all(
+    `SELECT *, rowid FROM ${table} WHERE rowid > ?`,
+    [state.lastRowId],
+    (error, rows = []) => {
+      state.queryInFlight = false;
+      if (error) {
+        console.error(`Failed to stream ${tableName}:`, error.message);
+        return;
       }
-      callback(json_data);
+      const lastRow = rows.at(-1);
+      if (lastRow) {
+        state.lastRowId = lastRow.rowid;
+        socket.emit("update_monitor", rows);
+      }
+    }
+  );
+}
+
+function startStreaming(socket, tableName, state) {
+  clearInterval(state.streaming);
+  state.lastRowId = 0;
+  state.queryInFlight = false;
+  state.streaming = setInterval(
+    () => stream(socket, tableName, state),
+    SAMPLE_RATE
+  );
+}
+
+function isTerminalMeasurementFailure(response) {
+  return Boolean(response.Failure && (
+    response.Failure.MachineNotRespond ||
+    response.Failure.PollerCommandNotSent ||
+    response.Failure.SaveDataFailed ||
+    response.Failure.ErrorInRunning ||
+    response.Failure.NotRunning
+  ));
+}
+
+function checkRun(socket, state) {
+  requestBackend(JSON.stringify({ Get: { key: "Interval" } }), response => {
+    if (response.Success) {
+      activeTable = null;
+      socket.emit("measurement_state", { running: false, table_name: null });
+      socket.emit("update_interval", response.Success.GotValue);
+    } else if (response.Failure && response.Failure.Busy) {
+      const busy = response.Failure.Busy;
+      activeTable = busy.table_name;
+      socket.emit("measurement_state", {
+        running: true,
+        table_name: busy.table_name,
+      });
+      socket.emit("update_interval", busy.interval);
+      startStreaming(socket, busy.table_name, state);
+    } else if (isTerminalMeasurementFailure(response)) {
+      activeTable = null;
+      socket.emit("measurement_state", { running: false, table_name: null });
+    }
+  });
+}
+
+io.on("connection", socket => {
+  const state = { streaming: null, lastRowId: 0, queryInFlight: false };
+
+  checkRun(socket, state);
+  getTables(socket);
+
+  socket.on("disconnect", () => {
+    clearInterval(state.streaming);
+    state.lastRowId = 0;
+  });
+
+  socket.on("read_db", (tableName, callback) => {
+    getRegisteredTable(tableName, (validationError, metadata) => {
+      if (validationError || String(metadata.channels).includes(",")) {
+        callback({ error: validationError?.message ?? "Not a single-channel table" });
+        return;
+      }
+      const table = quoteIdentifier(tableName);
+      db.all(`SELECT time, freq FROM ${table}`, (error, rows = []) => {
+        if (error) {
+          callback({ error: error.message });
+          return;
+        }
+        callback([
+          rows.map(row => row.time),
+          rows.map(row => row.freq),
+        ]);
+      });
     });
-    get_tables(socket);
   });
 
-  // Explicet update table list
-  /*
-  socket.on('get_table_list', (_arg, callback) => {
-    get_tables(socket);
-  });
-  */
-
-  // Stop measurement
-  socket.on('stop', (_arg, callback) => {
-    const client = connect_TCP(`{"Stop": {}}`);
-    client.on('data', data => {
-      console.log('Received from TCP server: ' + data);
-      const json_data = JSON.parse(data);
-      if ("Success" in json_data) {
-        state["last_rowid"] = 0;
-        clearInterval(state["streaming"]);
-        get_and_update_interval(socket);
-        get_tables(socket);
-      } else if ("Failure" in json_data) {
-        ;
+  socket.on("read_db_multi", (tableName, callback) => {
+    getRegisteredTable(tableName, (validationError, metadata) => {
+      if (validationError || !String(metadata.channels).includes(",")) {
+        callback({ error: validationError?.message ?? "Not a multichannel table" });
+        return;
       }
-      callback(json_data);
+      const table = quoteIdentifier(tableName);
+      db.all(
+        `SELECT channel, start_time, end_time, freq FROM ${table}`,
+        (error, rows = []) => {
+          if (error) {
+            callback({ error: error.message });
+            return;
+          }
+          const channels = Array.from({ length: 6 }, () => [[], []]);
+          for (const row of rows) {
+            if (channels[row.channel]) {
+              channels[row.channel][0].push(row.start_time);
+              channels[row.channel][1].push(row.freq);
+            }
+          }
+          callback(channels);
+        }
+      );
     });
-  });  
-
-  // Remove table
-  socket.on('remove', (table_name, callback) => {
-    db.run(`drop table if exists '${table_name}'`);
-    get_tables(socket);
-    callback(JSON.parse(`{"TableRemoved": "${table_name}"}`));
-    console.log(`Table "${table_name}" removed`);
   });
 
-  /*
-  // Update state
-  socket.on('update', (_arg, callback) => {
-    check_run(socket, state);
-    get_tables(socket);
-    callback(`{"Update": {}}`);
+  socket.on("refresh_tables", (_arg, callback) => {
+    getTables(socket);
+    callback?.({ Success: "Table list refreshed" });
   });
-  */ 
 
+  socket.on("get_interval", (_arg, callback) => {
+    requestBackend(JSON.stringify({ Get: { key: "Interval" } }), callback);
+  });
+
+  socket.on("set_interval", (interval, callback) => {
+    requestBackend(
+      JSON.stringify({ Set: { key: "Interval", value: interval } }),
+      callback
+    );
+  });
+
+  socket.on("run", (duration, callback) => {
+    requestBackend(
+      JSON.stringify({ RunExt: { duration } }),
+      response => {
+        if (response.Success && response.Success.SaveTable) {
+          activeTable = response.Success.SaveTable;
+          io.emit("measurement_state", {
+            running: true,
+            table_name: activeTable,
+          });
+          startStreaming(socket, response.Success.SaveTable, state);
+        }
+        callback(response);
+      }
+    );
+  });
+
+  socket.on("run_multi", ({ interval, channels }, callback) => {
+    const numericInterval = Number(interval);
+    const selectedChannels = Array.isArray(channels)
+      ? channels.map(Number).filter(Number.isInteger)
+      : [];
+    if (
+      !Number.isFinite(numericInterval) ||
+      numericInterval <= 0 ||
+      numericInterval > 10 ||
+      selectedChannels.length === 0 ||
+      selectedChannels.some(channel => channel < 0 || channel > 5)
+    ) {
+      callback({ Failure: { InvalidRequest: "Select at least one valid channel" } });
+      return;
+    }
+    requestBackend(
+      JSON.stringify({
+        RunMulti: {
+          channels: [...new Set(selectedChannels)],
+          interval: numericInterval,
+        },
+      }),
+      response => {
+        if (response.Success && response.Success.SaveTable) {
+          activeTable = response.Success.SaveTable;
+          io.emit("measurement_state", {
+            running: true,
+            table_name: activeTable,
+          });
+          startStreaming(socket, response.Success.SaveTable, state);
+        }
+        callback(response);
+      }
+    );
+  });
+
+  socket.on("stop", (_arg, callback) => {
+    requestBackend(JSON.stringify({ Stop: {} }), response => {
+      const terminalFailure = isTerminalMeasurementFailure(response);
+      if (response.Success || terminalFailure) {
+        activeTable = null;
+        io.emit("measurement_state", { running: false, table_name: null });
+        clearInterval(state.streaming);
+        state.streaming = null;
+        state.lastRowId = 0;
+        getTables(socket);
+      }
+      callback(response);
+    });
+  });
+
+  socket.on("remove", (tableName, callback) => {
+    if (tableName === activeTable) {
+      callback({
+        Failure: {
+          Busy: {
+            table_name: activeTable,
+            interval: "unknown",
+          },
+        },
+      });
+      return;
+    }
+    getRegisteredTable(tableName, validationError => {
+      if (validationError) {
+        callback({ Failure: { InvalidRequest: validationError.message } });
+        return;
+      }
+      const table = quoteIdentifier(tableName);
+      db.serialize(() => {
+        db.run(`DROP TABLE IF EXISTS ${table}`, dropError => {
+          if (dropError) {
+            callback({ Failure: { SaveDataFailed: dropError.message } });
+            return;
+          }
+          db.run("DELETE FROM registry WHERE table_name = ?", [tableName], error => {
+            if (error && !error.message.includes("no such table")) {
+              callback({ Failure: { SaveDataFailed: error.message } });
+              return;
+            }
+            getTables(socket);
+            callback({ TableRemoved: tableName });
+          });
+        });
+      });
+    });
+  });
 });

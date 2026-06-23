@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Labori - Single channel</title>
     <link rel="shortcut icon" href="/app/qcm/favicon.ico">
     <link href="/app/qcm/style.css" rel="stylesheet" type="text/css" media="all">
   </head>
@@ -10,7 +13,7 @@
       <div class="graph_box">
         <div id="monitor" class="graph"></div>
       </div>
-      <div id="monitor_handler" class="handler">
+      <div id="monitor_handler" class="handler control_panel">
         <div class="select_box">
           <label for="interval_select" class="label">Set Interval</label>
           <select id="interval_select">
@@ -22,8 +25,8 @@
           </select>
         </div>
         <div class="button_box">
-          <button id="run" class="my_button">Run</button>
-          <button id="stop" class="my_button">Stop</button>
+          <button id="run" class="my_button" type="button">Run</button>
+          <button id="stop" class="my_button" type="button">Stop</button>
         </div>
       </div>
     </div>
@@ -37,8 +40,8 @@
           <select id="history_select" size="11"></select>
         </div>
         <div class="button_box">
-          <button id="save_csv_history" class="my_button">Save as CSV</button>
-          <button id="remove" class="my_button">Remove Data</button>
+          <button id="save_csv_history" class="my_button" type="button">Save as CSV</button>
+          <button id="remove" class="my_button danger" type="button">Remove Data</button>
         </div>
       </div>
     </div>

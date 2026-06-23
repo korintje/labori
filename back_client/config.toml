@@ -1,3 +1,5 @@
 device_name = "Iwatsu"
 device_addr = "192.168.201.44:5198"
 api_port = 50001
+database_path = "Iwatsu.db"
+gpio_settle_millis = 10

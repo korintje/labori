@@ -1,5 +1,8 @@
 body {
   font-family: sans-serif;
+  margin: 0;
+  padding: 0 12px 12px;
+  background: #f4f6f8;
 }
 
 .wrapper {
@@ -7,6 +10,8 @@ body {
   background-color: #cecece;
   width: 100%;
   margin: 1% 0% 0% 0%;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .graph {
@@ -20,44 +25,8 @@ body {
   width: 100%;
 }
 
-#monitor0 {
-  grid-row: 1 / 2;
-  grid-column: 1 / 2;
-}
-
-#monitor1 {
-  grid-row: 1 / 2;
-  grid-column: 2 / 3;
-}
-
-#monitor2 {
-  grid-row: 2 / 3;
-  grid-column: 1 / 2;
-}
-
-#monitor3 {
-  grid-row: 2 / 3;
-  grid-column: 2 / 3;
-}
-
-#history0 {
-  grid-row: 1 / 2;
-  grid-column: 1 / 2;
-}
-
-#history1 {
-  grid-row: 1 / 2;
-  grid-column: 2 / 3;
-}
-
-#history2 {
-  grid-row: 2 / 3;
-  grid-column: 1 / 2;
-}
-
-#history3 {
-  grid-row: 2 / 3;
-  grid-column: 2 / 3;
+.graph_box {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .handler {
@@ -125,11 +94,47 @@ body {
   width: 48%;
   height: 100%;
   min-height: 50px;
+  cursor: pointer;
+}
+
+.my_button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.danger {
+  color: #8b0000;
 }
 
 
 .field_left {
   width: 95%;
+}
+
+.channel_selector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(70px, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+@media (max-width: 800px) {
+  .graph_box {
+    grid-template-columns: 1fr;
+  }
+
+  .handler {
+    grid-template-columns: 1fr;
+  }
+
+  #select_box,
+  #button_box,
+  #indicator_wrapper,
+  #history_select_box,
+  #history_button_box {
+    grid-column: 1;
+    grid-row: auto;
+  }
 }
 
 /*

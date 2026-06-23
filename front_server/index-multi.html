@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Labori - Multichannel</title>
     <link rel="shortcut icon" href="/app/qcm/favicon.ico">
     <link href="/app/qcm/style-multi.css" rel="stylesheet" type="text/css" media="all">
   </head>
@@ -12,6 +15,8 @@
         <div id="monitor1" class="graph"></div>
         <div id="monitor2" class="graph"></div>
         <div id="monitor3" class="graph"></div>
+        <div id="monitor4" class="graph"></div>
+        <div id="monitor5" class="graph"></div>
       </div>
     </div>
 
@@ -25,10 +30,19 @@
           <option value="10E-3">10 msec</option>
           <option value="1.0E-3">1 msec</option>
         </select>
+        <fieldset class="channel_selector">
+          <legend>Channels</legend>
+          <label><input type="checkbox" name="channel" value="0" checked> CH0</label>
+          <label><input type="checkbox" name="channel" value="1" checked> CH1</label>
+          <label><input type="checkbox" name="channel" value="2" checked> CH2</label>
+          <label><input type="checkbox" name="channel" value="3" checked> CH3</label>
+          <label><input type="checkbox" name="channel" value="4"> CH4</label>
+          <label><input type="checkbox" name="channel" value="5"> CH5</label>
+        </fieldset>
       </div>
       <div id="button_box" class="button_box">
-        <button id="run" class="my_button">Run</button>
-        <button id="stop" class="my_button">Stop</button>
+        <button id="run" class="my_button" type="button">Run</button>
+        <button id="stop" class="my_button" type="button">Stop</button>
       </div>
       <div id="indicator_wrapper" class="wrapper">
         <table>
@@ -50,14 +64,16 @@
         <div id="history1" class="graph"></div>
         <div id="history2" class="graph"></div>
         <div id="history3" class="graph"></div>
+        <div id="history4" class="graph"></div>
+        <div id="history5" class="graph"></div>
       </div>
       <div id="history_handler" class="handler">
         <div id="history_select_box" class="select_box">
           <select id="history_select" size="11"></select>
         </div>
         <div id="history_button_box" class="button_box">
-          <button id="save_csv_history" class="my_button">Save as CSV</button>
-          <button id="remove" class="my_button">Remove Data</button>
+          <button id="save_csv_history" class="my_button" type="button">Save as CSV</button>
+          <button id="remove" class="my_button danger" type="button">Remove Data</button>
         </div>
       </div>
     </div>

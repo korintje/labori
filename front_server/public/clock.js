@@ -8,7 +8,7 @@ function startClock() {
   m = checkTime(m);
   s = checkTime(s);
   clock_obj.innerHTML =  h + ":" + m + ":" + s;
-  setTimeout(startTime, 1000);
+  setTimeout(startClock, 1000);
 }
 
 function checkTime(i) {

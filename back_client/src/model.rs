@@ -7,9 +7,9 @@ pub struct TableCount {
     pub count: i32,
 }
 
-const FUNC_VALUES: [&str; 12] = [
+const FUNC_VALUES: [&str; 13] = [
     "FINA", "FINB", "FINC", "FLIN", "PER", "DUTY",
-    "PWID", "TINT", "FRAT", "TOT", "VPPA", "VPPB",
+    "PWID", "TINT", "FRAT", "PHAS", "TOT", "VPPA", "VPPB",
 ];
 
 const INTERVAL_VALUES: [&str; 14] = [
@@ -70,10 +70,39 @@ impl Command {
                     ))
                 }
             },
-            Command::Run{} => cmd += ":LOG:LEN 5e5; :LOG:CLE; :FRUN 1",
-            Command::RunExt{..} => cmd += ":FRUN 1",
-            Command::RunMulti{..} => cmd += ":FRUN 1",
-            Command::Stop{} => cmd += ":FRUN 1",
+            Command::Run{} => cmd += ":LOG:LEN 5e5;:LOG:CLE;:FRUN 1",
+            Command::RunExt{duration} => {
+                let interval = duration.parse::<f64>().map_err(|_| {
+                    LaboriError::CommandParseError(
+                        format!("Invalid duration: {}", duration)
+                    )
+                })?;
+                if !interval.is_finite() || interval <= 0.0 || interval > 10.0 {
+                    return Err(LaboriError::CommandParseError(
+                        format!("Duration must be greater than 0 and at most 10 seconds: {}", duration)
+                    ));
+                }
+                cmd += ":FRUN 0";
+            },
+            Command::RunMulti{channels, interval} => {
+                if channels.is_empty() {
+                    return Err(LaboriError::CommandParseError(
+                        "No channels are selected".to_string()
+                    ));
+                }
+                if channels.iter().any(|channel| *channel >= 6) {
+                    return Err(LaboriError::CommandParseError(
+                        format!("Channel must be between 0 and 5: {:?}", channels)
+                    ));
+                }
+                if !interval.is_finite() || *interval <= 0.0 || *interval > 10.0 {
+                    return Err(LaboriError::CommandParseError(
+                        format!("Interval must be greater than 0 and at most 10 seconds: {}", interval)
+                    ));
+                }
+                cmd += ":FRUN 0";
+            },
+            Command::Stop{} => cmd += ":FRUN 0",
         }
         Ok(cmd + "\n")
     }
@@ -120,6 +149,7 @@ impl From<&LaboriError> for Failure {
             SQLError(s) => SaveDataFailed(s.to_string()),
             CommandParseError(s) => InvalidRequest(s.to_string()),
             APISendError(s) => SendToFrontFailed(s.to_string()),
+            ConfigError(s) => InvalidRequest(s.to_string()),
             // LaboriError::InvalidReturn(s) => Failure::InvalidReturn(s.to_string()),
         }
     }

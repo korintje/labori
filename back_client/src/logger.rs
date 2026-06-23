@@ -6,8 +6,6 @@ use tokio::sync::mpsc;
 use encoding::{Encoding, DecoderTrap};
 use encoding::all::ASCII;
 
-const REGISTRY_NAME: &str = "registry";
-
 // Create DB file
 pub async fn create_db(dbpath: &str) 
 -> Result<(), LaboriError> {
@@ -26,9 +24,49 @@ pub async fn connect_db(dbpath: &str)
   }
 }
 
-// Prepare DB tables
-pub async fn prepare_tables(mut conn: SqliteConnection, table_name: &str) 
--> Result<SqliteConnection, error::LaboriError> {
+async fn prepare_registry(
+  conn: &mut SqliteConnection,
+) -> Result<(), error::LaboriError> {
+  conn.execute(
+    sqlx::query(
+      "CREATE TABLE IF NOT EXISTS registry (
+        table_name TEXT NOT NULL UNIQUE,
+        channels   TEXT NOT NULL,
+        interval   REAL NOT NULL
+      )"
+    )
+  ).await?;
+  Ok(())
+}
+
+async fn register_table(
+  conn: &mut SqliteConnection,
+  table_name: &str,
+  channels: &str,
+  interval: f64,
+) -> Result<(), error::LaboriError> {
+  sqlx::query("DELETE FROM registry WHERE table_name = $1")
+    .bind(table_name)
+    .execute(&mut *conn)
+    .await?;
+  sqlx::query(
+    "INSERT INTO registry (table_name, channels, interval) VALUES ($1, $2, $3)"
+  )
+    .bind(table_name)
+    .bind(channels)
+    .bind(interval)
+    .execute(&mut *conn)
+    .await?;
+  Ok(())
+}
+
+// Prepare a single-channel data table and registry entry.
+pub async fn prepare_tables(
+  mut conn: SqliteConnection,
+  table_name: &str,
+  interval: f64,
+) -> Result<SqliteConnection, error::LaboriError> {
+  prepare_registry(&mut conn).await?;
   let table_count: model::TableCount = sqlx::query_as(
     "SELECT COUNT(*) as count FROM sqlite_master WHERE TYPE='table' AND name=$1"
   )
@@ -48,34 +86,18 @@ pub async fn prepare_tables(mut conn: SqliteConnection, table_name: &str)
       return Err(LaboriError::SQLError(e))
     };
   }
+  register_table(&mut conn, table_name, "0", interval).await?;
   Ok(conn)
 }
 
-// Prepare DB tables and the registry
-pub async fn prepare_tables_reg(mut conn: SqliteConnection, table_name: &str) 
--> Result<SqliteConnection, error::LaboriError> {
-  
-  // Create table registry if not exists
-  let reg_count: model::TableCount = sqlx::query_as(
-    "SELECT COUNT(*) as count FROM sqlite_master WHERE TYPE='table' AND name=$1"
-  )
-  .bind(REGISTRY_NAME)
-  .fetch_one(&mut conn)
-  .await?;
-  if reg_count.count == 0 {
-    if let Err(e) = conn.execute(
-      sqlx::query(&format!(
-        "CREATE TABLE IF NOT EXISTS '{}' (
-          table_name    TEXT NOT NULL,
-          channels      TEXT NOT NULL,
-          interval      REAL NOT NULL
-        )", REGISTRY_NAME
-      ))
-    ).await {
-      return Err(LaboriError::SQLError(e))
-    };
-  }
-
+// Prepare a multichannel data table and registry entry.
+pub async fn prepare_tables_reg(
+  mut conn: SqliteConnection,
+  table_name: &str,
+  channels: &[u8],
+  interval: f64,
+) -> Result<SqliteConnection, error::LaboriError> {
+  prepare_registry(&mut conn).await?;
   // Create data table if not exists
   let table_count: model::TableCount = sqlx::query_as(
     "SELECT COUNT(*) as count FROM sqlite_master WHERE TYPE='table' AND name=$1"
@@ -97,13 +119,16 @@ pub async fn prepare_tables_reg(mut conn: SqliteConnection, table_name: &str)
       return Err(LaboriError::SQLError(e))
     };
   }
-
+  let channels = channels.iter()
+    .map(u8::to_string)
+    .collect::<Vec<String>>()
+    .join(",");
+  register_table(&mut conn, table_name, &channels, interval).await?;
   Ok(conn)
-  
 }
 
 pub async fn log(
-    device_name: String,
+    database_path: String,
     table_name: String,
     interval: f64,
     mut rx: mpsc::Receiver<Vec<u8>>
@@ -121,12 +146,12 @@ pub async fn log(
         batch_size = 1;
     }
 
-    let dbpath = format!("{}.db", device_name);
+    let dbpath = database_path;
     if ! Path::new(&dbpath).exists() {
         create_db(&dbpath).await?;
     }
     let conn = connect_db(&dbpath).await?;
-    let mut conn = prepare_tables(conn, &table_name).await?;
+    let mut conn = prepare_tables(conn, &table_name, interval).await?;
 
     // Insert atom parameters into the table
     let mut values = vec![];
@@ -140,7 +165,7 @@ pub async fn log(
         // Check and remove LF at the end of the buff
         let freqs_u8 :Vec<u8>;
         if buff.last() != Some(&10u8) {
-            if buff[0] == 4u8 {
+            if buff.first() == Some(&4u8) {
               println!("Stop logging");
               break
             }else{
@@ -150,11 +175,14 @@ pub async fn log(
         } else {
             freqs_u8 = buff[..buff.len()-1].to_vec();
         }
+        if freqs_u8.is_empty() {
+            continue
+        }
 
         // Separate by comma, decode to ASCII, parse to f64, and append to vec. 
         freqs_u8.split(|b| *b == 44u8)
             .map(|x| ASCII.decode(x, DecoderTrap::Replace).unwrap())
-            .map(|x| x.parse::<f64>().unwrap())
+            .filter_map(|x| x.parse::<f64>().ok())
             .for_each(|x| {
               current_time += interval;
               values.push(format!("({}, {}, {})", current_time, x, &freqs_u8.len()));
@@ -182,7 +210,7 @@ pub async fn log(
 
 
 pub async fn log_ext(
-  device_name: String,
+  database_path: String,
   table_name: String,
   interval: f64,
   mut rx: mpsc::Receiver<Vec<u8>>
@@ -202,12 +230,12 @@ pub async fn log_ext(
       batch_size = 1;
   }
 
-  let dbpath = format!("{}.db", device_name);
+  let dbpath = database_path;
   if ! Path::new(&dbpath).exists() {
       create_db(&dbpath).await?;
   }
   let conn = connect_db(&dbpath).await?;
-  let mut conn = prepare_tables(conn, &table_name).await?;
+  let mut conn = prepare_tables(conn, &table_name, interval).await?;
 
   // Insert atom parameters into the table
   let mut values = vec![];
@@ -224,7 +252,7 @@ pub async fn log_ext(
       let freq_u8: Vec<u8>;
       let meas_time: f64; 
       if buff.last() != Some(&10u8) {
-        if buff[0] == 4u8 {
+        if buff.first() == Some(&4u8) {
           println!("Stop logging");
           break
         }else{
@@ -232,6 +260,10 @@ pub async fn log_ext(
           continue
         }
       } else {
+        if buff.len() < 10 {
+          println!("Broken stream");
+          continue
+        }
         // println!("Correct stream");
         meas_time = u64::from_ne_bytes(buff[0..8].try_into().unwrap()) as f64 / 1000.0;
         freq_u8 = buff[8..buff.len()-1].to_vec();
@@ -239,7 +271,13 @@ pub async fn log_ext(
 
       // Decode to ASCII, parse to f64, and append to vec.
       let freq_ascii = ASCII.decode(&freq_u8, DecoderTrap::Replace).unwrap();
-      let freq_f64 = freq_ascii.parse::<f64>().unwrap();
+      let freq_f64 = match freq_ascii.parse::<f64>() {
+        Ok(value) => value,
+        Err(_) => {
+          println!("Invalid measurement response: {}", freq_ascii);
+          continue
+        },
+      };
       values.push(format!("({}, {}, {})", meas_time, freq_f64, &freq_u8.len()));
 
       /*
@@ -276,7 +314,7 @@ pub async fn log_ext(
 
 
 pub async fn log_multi(
-  device_name: String,
+  database_path: String,
   table_name: String,
   channels: Vec<u8>,
   interval: f64,
@@ -298,24 +336,12 @@ pub async fn log_multi(
   }
 
   // Connect to DB and prepare tables
-  let dbpath = format!("{}.db", device_name);
+  let dbpath = database_path;
   if ! Path::new(&dbpath).exists() {
       create_db(&dbpath).await?;
   }
   let conn = connect_db(&dbpath).await?;
-  let mut conn = prepare_tables_reg(conn, &table_name).await?;
-
-  // Registry table name
-  /*
-  let reg_query = format!(
-    "INSERT INTO '{}' VALUES ({}, {}, {})", 
-    REGISTRY_NAME,
-    table_name,
-    channels.into_iter().map(|byte| byte.to_string()).collect::<Vec<String>>().join(","),
-    interval
-  );
-  let _ = &conn.execute(sqlx::query(&reg_query)).await?;
-  */
+  let mut conn = prepare_tables_reg(conn, &table_name, &channels, interval).await?;
 
   // Insert atom parameters into the table
   let query_head = format!("INSERT INTO '{}' VALUES ", &table_name);
@@ -325,15 +351,13 @@ pub async fn log_multi(
 
   while let Some(buff) = rx.recv().await {
 
-      println!("here");
-
       // Check and remove LF at the end of the buff
       let freq_u8s: Vec<u8>;
       let start_meas_time: f64;
       let end_meas_time: f64;
       let channel_id: u8; 
       if buff.last() != Some(&10u8) {
-        if buff[0] == 4u8 {
+        if buff.first() == Some(&4u8) {
           println!("Stop logging");
           break
         } else {
@@ -341,6 +365,10 @@ pub async fn log_multi(
           continue
         }
       } else {
+        if buff.len() < 19 {
+          println!("Broken stream");
+          continue
+        }
         start_meas_time = u64::from_ne_bytes(buff[0..8].try_into().unwrap()) as f64 / 1000.0;
         end_meas_time = u64::from_ne_bytes(buff[8..16].try_into().unwrap()) as f64 / 1000.0;
         channel_id = u8::from_ne_bytes(buff[16..17].try_into().unwrap());
@@ -349,7 +377,13 @@ pub async fn log_multi(
 
       // Decode to ASCII, parse to f64, and append to vec.
       let freq_ascii = ASCII.decode(&freq_u8s, DecoderTrap::Replace).unwrap();
-      let freq_f64 = freq_ascii.parse::<f64>().unwrap();
+      let freq_f64 = match freq_ascii.parse::<f64>() {
+        Ok(value) => value,
+        Err(_) => {
+          println!("Invalid measurement response: {}", freq_ascii);
+          continue
+        },
+      };
       values.push(format!("({}, {}, {}, {})", channel_id, start_meas_time, end_meas_time, freq_f64));
 
       // Insert to sqlite db

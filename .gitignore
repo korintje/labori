@@ -1,0 +1,5 @@
+back_client/target/
+front_server/node_modules/
+*.db
+__pycache__/
+*.pyc

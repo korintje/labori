@@ -12,6 +12,9 @@ pub enum LaboriError {
     
     #[error("Failed to send API message")]
     APISendError(String),
+
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
     
     // #[error("Invalid return from TCP server")]
     // InvalidReturn(String),

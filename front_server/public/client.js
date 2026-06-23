@@ -1,218 +1,250 @@
-// Load HTML elements
-const MONITOR_VIEW = document.getElementById('monitor');
-const HISTORY_VIEW = document.getElementById('history');
+const MAX_LIVE_POINTS = 10000;
+const ACK_TIMEOUT_MS = 12000;
+const MONITOR_VIEW = document.getElementById("monitor");
+const HISTORY_VIEW = document.getElementById("history");
 const indicator = document.getElementById("socket");
-const interval_select = document.getElementById("interval_select");
-const interval_options = document.querySelectorAll("#interval_select option");
-const run_button = document.getElementById("run");
-const stop_button = document.getElementById("stop");
-const history_select = document.getElementById("history_select");
-const history_options = document.getElementById("history_select");
-const save_button_history = document.getElementById("save_csv_history");
-const remove_button = document.getElementById("remove");
-const response_field = document.getElementById("response_field");
+const intervalSelect = document.getElementById("interval_select");
+const runButton = document.getElementById("run");
+const stopButton = document.getElementById("stop");
+const historySelect = document.getElementById("history_select");
+const saveButton = document.getElementById("save_csv_history");
+const removeButton = document.getElementById("remove");
+const responseField = document.getElementById("response_field");
 
-// Edit response field
-function show_response(json_obj) {
-  console.log(json_obj)
-  let json_str = JSON.stringify(json_obj);
-  response_field.value = json_str;
+let running = false;
+let busy = false;
+let historyX = [];
+let historyY = [];
+
+const monitorLayout = {
+  title: "QCM monitor",
+  xaxis: { title: "time / sec", automargin: true },
+  yaxis: { title: "frequency / Hz", automargin: true, tickformat: ".2f" },
+  margin: { t: 64 },
+};
+const historyLayout = {
+  title: "QCM data viewer",
+  xaxis: { title: "time / sec", automargin: true },
+  yaxis: { title: "frequency / Hz", automargin: true, tickformat: ".2f" },
+  margin: { t: 64 },
+};
+const plotConfig = { responsive: true };
+
+Plotly.newPlot(MONITOR_VIEW, [{ x: [], y: [], mode: "lines" }], monitorLayout, plotConfig);
+Plotly.newPlot(HISTORY_VIEW, [{ x: [], y: [], mode: "lines" }], historyLayout, plotConfig);
+
+function showResponse(value) {
+  responseField.value = typeof value === "string" ? value : JSON.stringify(value);
 }
 
-// General function to set options
-function setOption(selectElement, value) {
-  return [...selectElement.options].some((option, index) => {
-      if (option.value == value) {
-          selectElement.selectedIndex = index;
-          return true;
-      }
+function isSuccess(response) {
+  return Boolean(response && response.Success);
+}
+
+function emitWithAck(event, payload, callback) {
+  socket.timeout(ACK_TIMEOUT_MS).emit(event, payload, (error, response) => {
+    if (error) {
+      callback({
+        Failure: {
+          MachineNotRespond: `${event} timed out after ${ACK_TIMEOUT_MS} ms`,
+        },
+      });
+      return;
+    }
+    callback(response);
   });
 }
 
-// General function to use "zip" in JavaScript
-function* zip(...args) {
-  const length = args[0].length;
-  for (let arr of args) {
-      if (arr.length !== length){
-          throw "Lengths of arrays are not eqaul.";
-      }
-  } 
-  for (let index = 0; index < length; index++) {
-      let elms = [];
-      for (arr of args) {
-          elms.push(arr[index]);
-      }
-      yield elms;
-  }
+function updateControls() {
+  const connected = socket.connected;
+  runButton.disabled = !connected || running || busy;
+  stopButton.disabled = !connected || !running || busy;
+  intervalSelect.disabled = !connected || running || busy;
+  historySelect.disabled = busy;
+  saveButton.disabled = busy || historySelect.selectedIndex < 0;
+  removeButton.disabled = busy || running || historySelect.selectedIndex < 0;
 }
 
-// General function to remove all options in a select
-function removeOptions(selectElement) {
-  var i, L = selectElement.options.length - 1;
-  for(i = L; i >= 0; i--) {
-     selectElement.remove(i);
-  }
+function setBusy(value) {
+  busy = value;
+  updateControls();
 }
 
-// Function to download file
-function download_csv(xs, ys, table_name) {
-  let content = "time(sec),frequency(Hz)\n";
-  for (let [x, y] of zip(xs, ys)) {
-    content += `${x},${y}\n`;
+function setIntervalOption(value) {
+  const option = [...intervalSelect.options].find(item => item.value === value);
+  if (option) intervalSelect.value = value;
+}
+
+function downloadCsv(xs, ys, tableName) {
+  const rows = ["time(sec),frequency(Hz)"];
+  for (let index = 0; index < Math.min(xs.length, ys.length); index += 1) {
+    rows.push(`${xs[index]},${ys[index]}`);
   }
-  const blob = new Blob([ content ], { "type" : "text/csv" });
+  const blob = new Blob([`${rows.join("\n")}\n`], { type: "text/csv;charset=utf-8" });
   const link = document.createElement("a");
-  link.download = `${table_name}.csv`;
+  link.download = `${tableName}.csv`;
   link.href = URL.createObjectURL(blob);
   link.click();
   URL.revokeObjectURL(link.href);
 }
 
-// Plotly parameters
-let layout = {
-  title: 'QCM monitor',
-  xaxis: { title: 'time / sec', automargin: true },
-  yaxis: { title: 'frequency / Hz', automargin: true, tickformat: '.2f' },
-  margin: { t: 96 }
-};
-let layout_hist = {
-  title: 'QCM data viewer',
-  xaxis: { title: 'time / sec', automargin: true },
-  yaxis: { title: 'frequency / Hz', automargin: true, tickformat: '.2f' },
-  margin: { t: 96 }
-};
-const config = { responsive: true };
-const config_hist = { responsive: true };
-let xs_live = [];
-let ys_live = [];
-let rs_live = [];
-let xs = [];
-let ys = [];
-let rs = [];
-Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
-Plotly.newPlot( HISTORY_VIEW, [{ x: xs, y: ys }], layout_hist, config_hist );
+function resetMonitor() {
+  Plotly.react(
+    MONITOR_VIEW,
+    [{ x: [], y: [], mode: "lines" }],
+    monitorLayout,
+    plotConfig
+  );
+}
 
-// Define socket
-const socket = io({reconnection: false});
+const socket = io({
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+});
 
-// Socket disconnection event
+socket.on("connect", () => {
+  indicator.value = "connected";
+  showResponse("connected to server");
+  updateControls();
+  emitWithAck("refresh_tables", "", () => {});
+});
+
 socket.on("disconnect", () => {
-  show_response("disconnected from server");
-  indicator.value= "disconnected";
+  indicator.value = "disconnected";
+  showResponse("disconnected from server; reconnecting...");
+  updateControls();
 });
 
-// Update table list
-socket.on("update_table_list", (tables) => {
-  console.log(tables);
-  removeOptions(history_select);
-  for (const table of tables) {
+socket.on("connect_error", error => showResponse({ connection_error: error.message }));
+
+socket.on("measurement_state", state => {
+  running = Boolean(state.running);
+  updateControls();
+});
+
+socket.on("update_interval", setIntervalOption);
+
+socket.on("update_table_list", tables => {
+  const selected = historySelect.value;
+  historySelect.replaceChildren();
+  for (const table of tables.filter(item => !String(item.channels).includes(","))) {
     const option = document.createElement("option");
-    option.value = table["name"];
-    option.text = table["name"];
-    history_select.add(option, null)
+    option.value = table.table_name;
+    option.textContent = table.table_name;
+    historySelect.append(option);
   }
+  if ([...historySelect.options].some(option => option.value === selected)) {
+    historySelect.value = selected;
+  }
+  updateControls();
 });
 
-// Initialize monitor view
-socket.on("init_monitor", () => {
-  xs_live = [];
-  ys_live = [];
-  rs_live = [];
+socket.on("update_monitor", rows => {
+  const validRows = rows.filter(row =>
+    Number.isFinite(row.time) && Number.isFinite(row.freq)
+  );
+  if (validRows.length === 0) return;
+  Plotly.extendTraces(
+    MONITOR_VIEW,
+    {
+      x: [validRows.map(row => row.time)],
+      y: [validRows.map(row => row.freq)],
+    },
+    [0],
+    MAX_LIVE_POINTS
+  );
 });
 
-// Update monitor view
-socket.on("update_monitor", (data) => {
-  data.forEach(function(datum){
-    xs_live.push(datum["time"]);
-    ys_live.push(datum["freq"]);
-    rs_live.push(datum["rate"]);
+intervalSelect.addEventListener("change", () => {
+  setBusy(true);
+  emitWithAck("set_interval", intervalSelect.value, response => {
+    showResponse(response);
+    setBusy(false);
   });
-  const sent_byte_amount = rs_live[rs_live.length - 1];
-  layout.title = `Network occupancy: ${sent_byte_amount} / 1024`; 
-  Plotly.newPlot(MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
 });
 
-// Update ineterval select
-socket.on("update_interval", (interval) => {
-  setOption(interval_select, interval)
-});
-
-// Socket connection event
-socket.on('connect', function() {
-
-  // Initialize graph and data
-  xs_live = [];
-  ys_live = [];
-  rs_live = [];
-  Plotly.newPlot( MONITOR_VIEW, [{ x: xs_live, y: ys_live }], layout, config );
-
-  // Show connected
-  show_response("connected to server");
-  indicator.value= "connected";
-
-  // Interval select
-  interval_select.addEventListener("change", () => {
-    let index = interval_select.selectedIndex;
-    let interval = interval_options[index].value;
-    socket.emit("set_interval", interval, (response) => {
-      show_response(response);
-    });
-  });
-
-  // Database table select
-  history_select.addEventListener("change", () => {
-    let index = history_select.selectedIndex;
-    let table = history_options[index].value;
-    socket.emit("read_db", table, (data) => {
-      show_response(`Got data from ${table}`);
-      xs = data[0];
-      ys = data[1];
-      layout.title = table;
-      Plotly.newPlot(HISTORY_VIEW, [{ x: xs, y: ys }], layout_hist, config_hist);
-    });
-  });
-
-  // Run button
-  run_button.addEventListener("click", () => {
-    let index = interval_select.selectedIndex;
-    let interval = interval_options[index].value;
-    socket.emit("set_interval", interval, (response) => {
-      show_response(response);
-      socket.emit("run", interval, (response) => {
-        show_response(response);
-        if ("Success" in response) {
-          xs_live = [];
-          ys_live = [];
-          rs_live = [];
-        }
-      });
-    });
-  });
-
-  // Stop button
-  stop_button.addEventListener("click", () => {
-    socket.emit("stop", "", (response) => {
-      show_response(response);
-    });
-  });
-
-  // Save button for table list
-  save_button_history.addEventListener("click", () => {
-    let index = history_select.selectedIndex;
-    let table_name = history_options[index].value;
-    table_name = table_name.replaceAll(":", "-");
-    download_csv(xs, ys, table_name);
-  });
-
-  // Remove button
-  remove_button.addEventListener("click", () => {
-    let index = history_select.selectedIndex;
-    let table_name = history_options[index].value;
-    if(window.confirm(`Are you sure to remove ${table_name}？`)){
-      socket.emit("remove", table_name, (response) => {
-        show_response(response);
-      });
+historySelect.addEventListener("change", () => {
+  if (!historySelect.value) return;
+  setBusy(true);
+  emitWithAck("read_db", historySelect.value, data => {
+    if (data.error) {
+      showResponse(data);
+      setBusy(false);
+      return;
     }
-  }); 
-
+    historyX = data[0];
+    historyY = data[1];
+    historyLayout.title = historySelect.value;
+    Plotly.react(
+      HISTORY_VIEW,
+      [{ x: historyX, y: historyY, mode: "lines" }],
+      historyLayout,
+      plotConfig
+    );
+    showResponse(`Got data from ${historySelect.value}`);
+    setBusy(false);
+  });
 });
+
+runButton.addEventListener("click", () => {
+  setBusy(true);
+  emitWithAck("set_interval", intervalSelect.value, setResponse => {
+    if (!isSuccess(setResponse)) {
+      showResponse(setResponse);
+      setBusy(false);
+      return;
+    }
+    emitWithAck("run", intervalSelect.value, runResponse => {
+      showResponse(runResponse);
+      if (isSuccess(runResponse)) {
+        running = true;
+        resetMonitor();
+      }
+      setBusy(false);
+    });
+  });
+});
+
+stopButton.addEventListener("click", () => {
+  setBusy(true);
+  emitWithAck("stop", "", response => {
+    showResponse(response);
+    if (isSuccess(response)) running = false;
+    setBusy(false);
+  });
+});
+
+saveButton.addEventListener("click", () => {
+  if (!historySelect.value) return;
+  downloadCsv(
+    historyX,
+    historyY,
+    historySelect.value.replaceAll(":", "-")
+  );
+});
+
+removeButton.addEventListener("click", () => {
+  const tableName = historySelect.value;
+  if (!tableName || !window.confirm(`Are you sure you want to remove ${tableName}?`)) {
+    return;
+  }
+  setBusy(true);
+  emitWithAck("remove", tableName, response => {
+    showResponse(response);
+    if (response.TableRemoved) {
+      historyX = [];
+      historyY = [];
+      historyLayout.title = "QCM data viewer";
+      Plotly.react(
+        HISTORY_VIEW,
+        [{ x: [], y: [], mode: "lines" }],
+        historyLayout,
+        plotConfig
+      );
+    }
+    setBusy(false);
+  });
+});
+
+updateControls();

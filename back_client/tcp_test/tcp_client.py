@@ -1,44 +1,19 @@
-# -*- coding : UTF-8 -*-
+import json
+import socket
+import time
 
-# 0.ライブラリのインポートと変数定義
-import socket, time
+TARGET = ("127.0.0.1", 50001)
 
-target_ip = "127.0.0.1"
-target_port = 50001
-buffer_size = 1024
 
-# 1.ソケットオブジェクトの作成
-tcp_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+def request(command: dict) -> dict:
+    payload = json.dumps(command).encode("utf-8") + b"\n"
+    with socket.create_connection(TARGET, timeout=5) as client:
+        client.sendall(payload)
+        response = client.makefile("rb").readline()
+    return json.loads(response)
 
-# 2.サーバに接続
-tcp_client.connect((target_ip,target_port))
 
-# 3.サーバにデータを送信
-# data = r'{"Set": { "key": "Interval", "value": "1" }}'
-# data = r'{"Get": { "key": "Interval", "value": "0.001" }}'
-data = r'{"Set": { "key": "Interval", "value": "0.001" }}'
-data_ba = bytes(data, "utf-8")
-tcp_client.send(data_ba)
-# 4.サーバからのレスポンスを受信
-response = tcp_client.recv(buffer_size)
-print("Received a response : {}".format(response))
-
-# 3.サーバにデータを送信
-data = r'{"Run": {}}'
-data_ba = bytes(data, "utf-8")
-tcp_client.send(data_ba)
-# 4.サーバからのレスポンスを受信
-response = tcp_client.recv(buffer_size)
-print("Received a response : {}".format(response))
-
+print(request({"Set": {"key": "Interval", "value": "0.001"}}))
+print(request({"Run": {}}))
 time.sleep(10)
-
-# 3.サーバにデータを送信
-data = r'{"Stop": {}}'
-data_ba = bytes(data, "utf-8")
-tcp_client.send(data_ba)
-# 4.サーバからのレスポンスを受信
-response = tcp_client.recv(buffer_size)
-print("Received a response : {}".format(response))
-
-
+print(request({"Stop": {}}))
