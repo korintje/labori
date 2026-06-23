@@ -1,5 +1,18 @@
-device_name = "Iwatsu"
+# SC-7217A / SC-7215A remote command endpoint
 device_addr = "192.168.201.44:5198"
-api_port = 50001
-database_path = "Iwatsu.db"
+measurement_function = "FINA"
+
+# Unified HTTP, WebSocket, and REST server
+listen_addr = "127.0.0.1:3000"
+
+# Paths are resolved relative to this file
+database_path = "labori.db"
+web_root = "../web"
+
+# Acquisition and persistence tuning
 gpio_settle_millis = 10
+instrument_timeout_millis = 15000
+reconnect_millis = 500
+storage_queue_capacity = 100000
+storage_batch_size = 1000
+storage_flush_millis = 100

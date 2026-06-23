@@ -1,50 +1,106 @@
-use std::fs;
-use std::io::{BufReader, Read};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
 use serde::Deserialize;
-use crate::error::LaboriError;
+
+use crate::error::{LaboriError, Result};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub device_name: String,
     pub device_addr: String,
-    pub api_port: u16,
+    #[serde(default = "default_measurement_function")]
+    pub measurement_function: String,
+    pub listen_addr: String,
     pub database_path: String,
+    pub web_root: String,
+    #[serde(default = "default_gpio_settle_millis")]
     pub gpio_settle_millis: u64,
+    #[serde(default = "default_storage_queue_capacity")]
+    pub storage_queue_capacity: usize,
+    #[serde(default = "default_storage_batch_size")]
+    pub storage_batch_size: usize,
+    #[serde(default = "default_storage_flush_millis")]
+    pub storage_flush_millis: u64,
+    #[serde(default = "default_reconnect_millis")]
+    pub reconnect_millis: u64,
+    #[serde(default = "default_instrument_timeout_millis")]
+    pub instrument_timeout_millis: u64,
 }
 
-fn read_file(path: String) -> Result<String, String> {
-    let mut file_content = String::new();
-    let mut fr = fs::File::open(path)
-        .map(|f| BufReader::new(f))
-        .map_err(|e| e.to_string())?;
-    fr.read_to_string(&mut file_content)
-        .map_err(|e| e.to_string())?;
-    Ok(file_content)
+fn default_gpio_settle_millis() -> u64 {
+    10
+}
+fn default_measurement_function() -> String {
+    "FINA".to_string()
+}
+fn default_storage_queue_capacity() -> usize {
+    100_000
+}
+fn default_storage_batch_size() -> usize {
+    1_000
+}
+fn default_storage_flush_millis() -> u64 {
+    100
+}
+fn default_reconnect_millis() -> u64 {
+    500
+}
+fn default_instrument_timeout_millis() -> u64 {
+    15_000
 }
 
 impl Config {
-
-    pub fn from_file(path: &str) -> Result<Config, LaboriError> {
-        let s = read_file(path.to_owned())
-            .map_err(LaboriError::ConfigError)?;
-        let config: Result<Config, toml::de::Error> = toml::from_str(&s);
-        match config {
-            Ok(mut c) => {
-                let config_path = PathBuf::from(path);
-                let database_path = PathBuf::from(&c.database_path);
-                if database_path.is_relative() {
-                    let parent = config_path.parent().unwrap_or_else(|| Path::new("."));
-                    c.database_path = parent.join(database_path)
-                        .to_string_lossy()
-                        .into_owned();
-                }
-                Ok(c)
-            },
-            Err(e) => Err(LaboriError::ConfigError(
-                format!("fail to parse {}: {}", path, e)
-            )),
-        }
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let source = fs::read_to_string(path)
+            .map_err(|error| LaboriError::Config(format!("{}: {error}", path.display())))?;
+        let mut config: Self = toml::from_str(&source)
+            .map_err(|error| LaboriError::Config(format!("{}: {error}", path.display())))?;
+        let base = path.parent().unwrap_or_else(|| Path::new("."));
+        config.database_path = resolve(base, &config.database_path);
+        config.web_root = resolve(base, &config.web_root);
+        config.validate()?;
+        Ok(config)
     }
 
+    fn validate(&self) -> Result<()> {
+        const FUNCTIONS: [&str; 13] = [
+            "FINA", "FINB", "FINC", "FLIN", "PER", "DUTY", "PWID", "TINT", "FRAT", "PHAS", "TOT",
+            "VPPA", "VPPB",
+        ];
+        if !FUNCTIONS.contains(&self.measurement_function.as_str()) {
+            return Err(LaboriError::Config(format!(
+                "unsupported measurement_function: {}",
+                self.measurement_function
+            )));
+        }
+        if self.storage_queue_capacity == 0 || self.storage_batch_size == 0 {
+            return Err(LaboriError::Config(
+                "storage queue capacity and batch size must be greater than zero".into(),
+            ));
+        }
+        if self.storage_batch_size > self.storage_queue_capacity {
+            return Err(LaboriError::Config(
+                "storage_batch_size must not exceed storage_queue_capacity".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn instrument_timeout(&self) -> Duration {
+        Duration::from_millis(self.instrument_timeout_millis)
+    }
+}
+
+fn resolve(base: &Path, value: &str) -> String {
+    let path = PathBuf::from(value);
+    let resolved = if path.is_relative() {
+        base.join(path)
+    } else {
+        path
+    };
+    resolved.to_string_lossy().into_owned()
 }

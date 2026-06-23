@@ -1,26 +1,21 @@
 [package]
 name = "labori"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-chrono = "0.4.38"
-encoding = "0.2.33"
-rppal = "0.19.0"
-serde = { version = "1.0.209", features = ["derive"] }
-serde_json = "1.0.127"
-sqlx = { version = "0.8.1", features = ["runtime-tokio-rustls", "sqlite"] }
-thiserror = "1.0.63"
-tokio = { version = "1.40.0", features = ["full"] }
-toml = "0.8.19"
-# sqlx = { version = "0.5", features = ["runtime-tokio-rustls", "sqlite"] }
-# tokio = { version = "1.4", features = ["full"] }
-# serde = { serde = "1.0", features = ["derive"] }
-# serde_json = "1.0"
-# thiserror = { version = "1.0" }
-# encoding = { version = "0.2" }
-# toml = "0.5"
-# chrono = "0.4"
-# rppal = "0.14"
+axum = { version = "0.7", features = ["ws"] }
+chrono = { version = "0.4", features = ["serde"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rppal = "0.19"

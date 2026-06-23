@@ -1,47 +1,57 @@
-mod model;
-mod error;
-mod client;
-use error::LaboriError;
-mod logger;
+mod acquisition;
 mod config;
-use config::Config;
-mod server;
-use tokio::sync::mpsc;
+mod error;
+mod model;
+mod storage;
+mod web;
 
-const CONFIG_FILENAME: &str = "config.toml";
+use std::time::Duration;
+
+use config::Config;
+use error::Result;
+use tokio::sync::broadcast;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
-async fn main() -> Result<(), error::LaboriError> {
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("labori=info,tower_http=info")),
+        )
+        .init();
 
-    // Load config 
-    let config_path = std::env::args().nth(1)
+    let config_path = std::env::args()
+        .nth(1)
         .or_else(|| std::env::var("LABORI_CONFIG").ok())
-        .unwrap_or_else(|| CONFIG_FILENAME.to_string());
-    let config = Config::from_file(&config_path)?;
+        .unwrap_or_else(|| "config.toml".to_string());
+    let config = Config::from_file(config_path)?;
 
-    // Create tokio channel
-    let (tx0, rx0) = mpsc::channel(1024);
-    let (tx1, rx1) = mpsc::channel(1024);
+    let (pool, storage) = storage::open(
+        &config.database_path,
+        config.storage_queue_capacity,
+        config.storage_batch_size,
+        Duration::from_millis(config.storage_flush_millis),
+    )
+    .await?;
+    let (live, _) = broadcast::channel(16_384);
+    let controller = acquisition::spawn(config.clone(), storage.clone(), live.clone());
 
-    // Spawn server, runner, logger
-    let server_handle = tokio::spawn(server::serve(config.clone(), tx0, rx1));
-    let client_handle = tokio::spawn(client::connect(config.clone(), tx1, rx0));
+    let web_result = web::serve(
+        &config.listen_addr,
+        &config.web_root,
+        controller.clone(),
+        pool,
+        live,
+    )
+    .await;
 
-    tokio::select! {
-        result = server_handle => {
-            match result {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(e)) => Err(LaboriError::from(e)),
-                Err(e) => Err(LaboriError::APISendError(e.to_string())),
-            }
-        },
-        result = client_handle => {
-            match result {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(e)) => Err(LaboriError::from(e)),
-                Err(e) => Err(LaboriError::APISendError(e.to_string())),
-            }
-        },
+    if controller.status().await.running {
+        let _ = controller.stop().await;
+        while controller.status().await.running {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
+    storage.shutdown().await?;
+    web_result
 }
-
