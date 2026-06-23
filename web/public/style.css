@@ -45,8 +45,9 @@ body {
 
 .select_box select {
   font-size:18px;
-  height:100%;
+  min-height:42px;
   width:97%;
+  margin: 4px 0 10px;
 }
 
 .select_box select option {

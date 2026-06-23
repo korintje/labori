@@ -3,6 +3,7 @@ const PAGE_SIZE = 50000;
 const MONITOR_VIEW = document.getElementById("monitor");
 const HISTORY_VIEW = document.getElementById("history");
 const indicator = document.getElementById("socket");
+const measurementMode = document.getElementById("measurement_mode");
 const intervalSelect = document.getElementById("interval_select");
 const runButton = document.getElementById("run");
 const stopButton = document.getElementById("stop");
@@ -51,6 +52,7 @@ async function api(path, options = {}) {
 function updateControls() {
   runButton.disabled = !connected || running || busy;
   stopButton.disabled = !connected || !running || busy;
+  measurementMode.disabled = !connected || running || busy;
   intervalSelect.disabled = !connected || running || busy;
   historySelect.disabled = busy;
   saveButton.disabled = busy || !historySelect.value;
@@ -65,6 +67,9 @@ function setBusy(value) {
 function applyStatus(status) {
   running = Boolean(status.running);
   currentSessionId = status.session_id;
+  if (status.mode === "single_log" || status.mode === "single_direct") {
+    measurementMode.value = status.mode;
+  }
   if (status.last_error) showResponse(status.last_error);
   updateControls();
 }
@@ -80,7 +85,9 @@ async function refreshSessions() {
   for (const session of sessions) {
     const option = document.createElement("option");
     option.value = String(session.id);
-    option.textContent = `#${session.id} ${session.started_at} [${session.state}]`;
+    const method = session.mode === "single_log" ? "LOG" : "MEAS";
+    option.textContent =
+      `#${session.id} ${session.started_at} [${method}] [${session.state}]`;
     option.dataset.filename = `labori-${session.id}-${session.started_at.replaceAll(":", "-")}`;
     historySelect.append(option);
   }
@@ -174,7 +181,7 @@ runButton.addEventListener("click", async () => {
     const status = await api("/api/measurements/start", {
       method: "POST",
       body: JSON.stringify({
-        mode: "single",
+        mode: measurementMode.value,
         interval_seconds: Number(intervalSelect.value),
       }),
     });
@@ -202,9 +209,11 @@ stopButton.addEventListener("click", async () => {
 
 saveButton.addEventListener("click", () => {
   if (!historySelect.value) return;
-  const rows = ["sequence,time_s,frequency"];
+  const rows = ["sequence,start_time_s,end_time_s,frequency"];
   for (const sample of historySamples) {
-    rows.push(`${sample.sequence},${sample.ended_ns / 1e9},${sample.value}`);
+    rows.push(
+      `${sample.sequence},${sample.started_ns / 1e9},${sample.ended_ns / 1e9},${sample.value}`
+    );
   }
   const blob = new Blob([`${rows.join("\n")}\n`], { type: "text/csv;charset=utf-8" });
   const link = document.createElement("a");

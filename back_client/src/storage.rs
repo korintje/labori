@@ -418,7 +418,17 @@ async fn finish_session(
 }
 
 pub async fn list_sessions(pool: &SqlitePool, mode: Option<&str>) -> Result<Vec<SessionSummary>> {
-    let rows = if let Some(mode) = mode {
+    let rows = if mode == Some("single") {
+        sqlx::query_as::<_, SessionSummary>(
+            "SELECT id, started_at, ended_at, mode, interval_seconds, channels,
+                    state, sample_count, error
+             FROM sessions
+             WHERE mode IN ('single_log', 'single_direct', 'single')
+             ORDER BY id DESC LIMIT 1000",
+        )
+        .fetch_all(pool)
+        .await?
+    } else if let Some(mode) = mode {
         sqlx::query_as::<_, SessionSummary>(
             "SELECT id, started_at, ended_at, mode, interval_seconds, channels,
                     state, sample_count, error
@@ -503,7 +513,7 @@ mod tests {
             .await
             .unwrap();
         let session_id = storage
-            .begin(MeasurementMode::Single, 0.001, Vec::new())
+            .begin(MeasurementMode::SingleDirect, 0.001, Vec::new())
             .await
             .unwrap();
         for sequence in 0..20 {

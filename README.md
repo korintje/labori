@@ -53,7 +53,25 @@ Rustプロセス内でも責務は分離されています。
 
 ### 単一チャンネル
 
-計測器の内蔵ログを使用します。
+UIから次の二方式を選択できます。長時間測定と実時間に一致する時間軸を優先する場合は、既定の`:MEAS? direct`を使用してください。
+
+#### `single_direct` — `:MEAS?`直接測定
+
+```text
+:FRUN 0
+loop:
+    単調時計で開始時刻を取得
+    :MEAS?
+    応答受信
+    単調時計で終了時刻を取得
+    サンプルを保存
+```
+
+周期調整用のsleepは追加しません。前回の応答を受信すると直ちに次の`:MEAS?`を送るため、Raspberry Pi側で加わる不要な待ち時間を最小化します。
+
+各サンプルには実際の`started_ns`と`ended_ns`を保存します。LAN処理時間などによって測定間隔が伸びても、グラフとCSVの時間軸は実時間の経過を反映します。通信断中の時間も詰めません。
+
+#### `single_log` — 計測器内蔵ログ
 
 ```text
 :GATE:TIME
@@ -63,12 +81,12 @@ Rustプロセス内でも責務は分離されています。
 :LOG:DATA?
 ```
 
-時間軸は計測器のゲート時間とサンプル連番から生成します。LANの応答時間を測定周期へ加えないため、`:MEAS?` を1回ずつ往復する方式より高い時間分解能を維持できます。
+時間軸はゲート時間とサンプル連番から生成します。より高いスループットが期待できますが、計測器内部の実記録周期がゲート時間と一致しない場合、実時間とのずれが生じる可能性があります。
 
-通信断が発生した場合は再接続し、ホストの単調時計から推定した欠損サンプル数をイベントとして保存します。欠損を詰めて連続データに見せることはありません。
+通信断が発生した場合は、ホストの単調時計から推定した欠損サンプル数をイベントとして保存します。
 
 > [!IMPORTANT]
-> `:LOG:DATA?` の取得済みデータ消費動作、1024 byte応答上限、内蔵ログ満杯時の動作は実機ファームウェアに依存します。目標サンプルレートで連続運転試験を実施してください。
+> `:LOG:DATA?`の取得済みデータ消費動作、1024 byte応答上限、内蔵ログ満杯時の動作は実機ファームウェアに依存します。長時間測定で実時間との一致が必要な場合は`single_direct`を選択してください。
 
 ### 多チャンネル
 
@@ -183,13 +201,22 @@ GET /api/status
 
 ### 測定開始
 
-単一チャンネル:
+単一チャンネル（`:MEAS?`直接測定）:
 
 ```http
 POST /api/measurements/start
 Content-Type: application/json
 
-{"mode":"single","interval_seconds":0.001}
+{"mode":"single_direct","interval_seconds":0.001}
+```
+
+単一チャンネル（内蔵ログ）:
+
+```http
+POST /api/measurements/start
+Content-Type: application/json
+
+{"mode":"single_log","interval_seconds":0.001}
 ```
 
 多チャンネル:
@@ -214,6 +241,8 @@ POST /api/measurements/stop
 ```http
 GET /api/sessions
 GET /api/sessions?mode=single
+GET /api/sessions?mode=single_direct
+GET /api/sessions?mode=single_log
 GET /api/sessions?mode=multi
 ```
 
@@ -266,6 +295,8 @@ WebSocket /api/live
 id, started_at, ended_at, mode, interval_seconds,
 channels, state, sample_count, error
 ```
+
+`mode`は`single_direct`、`single_log`、`multi`のいずれかです。
 
 状態:
 

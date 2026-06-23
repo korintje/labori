@@ -15,6 +15,11 @@
       </div>
       <div id="monitor_handler" class="handler control_panel">
         <div class="select_box">
+          <label for="measurement_mode" class="label">Measurement Method</label>
+          <select id="measurement_mode">
+            <option value="single_direct" selected>:MEAS? direct (accurate elapsed time)</option>
+            <option value="single_log">Instrument log (higher throughput)</option>
+          </select>
           <label for="interval_select" class="label">Set Interval</label>
           <select id="interval_select">
             <option value="10.0E+0">10 sec</option>

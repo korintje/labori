@@ -225,9 +225,9 @@ async fn run_session(
             Ok(gpio) => Some(gpio),
             Err(error) => return (0, false, Err(error)),
         },
-        MeasurementMode::Single => None,
+        MeasurementMode::SingleLog | MeasurementMode::SingleDirect => None,
     };
-    let channels = if request.mode == MeasurementMode::Single {
+    let channels = if request.mode != MeasurementMode::Multi {
         vec![0]
     } else {
         request.channels.clone()
@@ -256,31 +256,35 @@ async fn run_session(
             match Instrument::connect(&config, request.mode, request.interval_seconds).await {
                 Ok(instrument) => {
                     connection = Some(instrument);
+                    let recovered_after_attempts = reconnect_attempts;
                     reconnect_attempts = 0;
-                    if sequence > 0 {
-                        let interval_ns =
-                            (request.interval_seconds * 1_000_000_000.0).round() as u64;
-                        let expected_sequence =
-                            (origin.elapsed().as_nanos() as u64) / interval_ns.max(1);
-                        if expected_sequence > sequence {
-                            let missing = expected_sequence - sequence;
-                            let gap_message =
-                                format!("estimated {missing} missing samples while disconnected");
-                            if let Err(error) = storage.try_event(
-                                session_id,
-                                sequence as i64,
-                                "gap",
-                                gap_message.clone(),
-                            ) {
-                                return (sequence, degraded, Err(error));
+                    if sequence > 0 || recovered_after_attempts > 0 {
+                        degraded = true;
+                        if sequence > 0 && request.mode == MeasurementMode::SingleLog {
+                            let interval_ns =
+                                (request.interval_seconds * 1_000_000_000.0).round() as u64;
+                            let expected_sequence =
+                                (origin.elapsed().as_nanos() as u64) / interval_ns.max(1);
+                            if expected_sequence > sequence {
+                                let missing = expected_sequence - sequence;
+                                let gap_message = format!(
+                                    "estimated {missing} missing samples while disconnected"
+                                );
+                                if let Err(error) = storage.try_event(
+                                    session_id,
+                                    sequence as i64,
+                                    "gap",
+                                    gap_message.clone(),
+                                ) {
+                                    return (sequence, degraded, Err(error));
+                                }
+                                let _ = live.send(LiveEvent::Notice {
+                                    session_id,
+                                    at_sequence: sequence as i64,
+                                    message: gap_message,
+                                });
+                                sequence = expected_sequence;
                             }
-                            let _ = live.send(LiveEvent::Notice {
-                                session_id,
-                                at_sequence: sequence as i64,
-                                message: gap_message,
-                            });
-                            sequence = expected_sequence;
-                            degraded = true;
                         }
                         let message = "instrument connection restored".to_string();
                         if let Err(error) = storage.try_event(
@@ -340,7 +344,7 @@ async fn run_session(
             }
         }
 
-        if request.mode == MeasurementMode::Single {
+        if request.mode == MeasurementMode::SingleLog {
             let mut stop_now = false;
             let mut storage_failed = None;
             let read_result = {
@@ -497,7 +501,9 @@ async fn run_session(
                 }
                 let _ = live.send(LiveEvent::Sample { sample });
                 sequence += 1;
-                channel_index = (channel_index + 1) % channels.len();
+                if request.mode == MeasurementMode::Multi {
+                    channel_index = (channel_index + 1) % channels.len();
+                }
             }
             Err(error) => {
                 degraded = true;
@@ -573,13 +579,15 @@ impl Instrument {
             )));
         }
         match mode {
-            MeasurementMode::Single => {
+            MeasurementMode::SingleLog => {
                 instrument.send(":FRUN 0").await?;
                 instrument.send(":LOG:LEN 5e5").await?;
                 instrument.send(":LOG:CLE").await?;
                 instrument.send(":FRUN 1").await?;
             }
-            MeasurementMode::Multi => instrument.send(":FRUN 0").await?,
+            MeasurementMode::SingleDirect | MeasurementMode::Multi => {
+                instrument.send(":FRUN 0").await?
+            }
         }
         Ok(instrument)
     }

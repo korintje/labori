@@ -104,8 +104,10 @@ async fn sessions(
     Query(filter): Query<SessionFilter>,
 ) -> Result<Json<Vec<crate::model::SessionSummary>>> {
     if let Some(mode) = filter.mode.as_deref() {
-        if mode != "single" && mode != "multi" {
-            return Err(LaboriError::Invalid("mode must be single or multi".into()));
+        if !["single", "single_log", "single_direct", "multi"].contains(&mode) {
+            return Err(LaboriError::Invalid(
+                "mode must be single, single_log, single_direct, or multi".into(),
+            ));
         }
     }
     Ok(Json(

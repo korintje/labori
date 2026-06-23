@@ -6,14 +6,16 @@ use crate::error::{LaboriError, Result};
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MeasurementMode {
-    Single,
+    SingleLog,
+    SingleDirect,
     Multi,
 }
 
 impl MeasurementMode {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Single => "single",
+            Self::SingleLog => "single_log",
+            Self::SingleDirect => "single_direct",
             Self::Multi => "multi",
         }
     }
@@ -38,7 +40,7 @@ impl StartRequest {
             ));
         }
         match self.mode {
-            MeasurementMode::Single => self.channels.clear(),
+            MeasurementMode::SingleLog | MeasurementMode::SingleDirect => self.channels.clear(),
             MeasurementMode::Multi => {
                 self.channels.sort_unstable();
                 self.channels.dedup();
@@ -152,7 +154,7 @@ mod tests {
     #[test]
     fn rejects_invalid_interval_and_channel() {
         assert!(StartRequest {
-            mode: MeasurementMode::Single,
+            mode: MeasurementMode::SingleDirect,
             interval_seconds: 0.0,
             channels: vec![],
         }
@@ -165,5 +167,17 @@ mod tests {
         }
         .validate()
         .is_err());
+    }
+
+    #[test]
+    fn serializes_single_methods_as_distinct_api_values() {
+        assert_eq!(
+            serde_json::to_string(&MeasurementMode::SingleLog).unwrap(),
+            "\"single_log\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MeasurementMode::SingleDirect).unwrap(),
+            "\"single_direct\""
+        );
     }
 }
