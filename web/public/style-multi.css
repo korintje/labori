@@ -83,6 +83,81 @@ body {
   font-size:18px;
 }
 
+.text_input,
+.text_area {
+  box-sizing: border-box;
+  width: 97%;
+  margin: 4px 0 10px;
+  padding: 8px;
+  border: 1px solid #999;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.text_area {
+  resize: vertical;
+}
+
+.qcm_panel {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px;
+}
+
+.qcm_panel h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.qcm_grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.qcm_grid select,
+.qcm_grid input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px;
+  font-size: 16px;
+}
+
+.small_button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.small_button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.stats_box {
+  margin-top: 10px;
+  padding: 8px;
+  background: #f8fafc;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.event_list {
+  max-height: 160px;
+  overflow: auto;
+  margin-top: 8px;
+  background: #f8fafc;
+  border-radius: 4px;
+}
+
+.event_row {
+  padding: 6px 8px;
+  border-bottom: 1px solid #ddd;
+  font-size: 14px;
+}
+
 
 .button_box {
   width: 100%;
@@ -134,6 +209,10 @@ body {
   #history_button_box {
     grid-column: 1;
     grid-row: auto;
+  }
+
+  .qcm_grid {
+    grid-template-columns: 1fr;
   }
 }
 

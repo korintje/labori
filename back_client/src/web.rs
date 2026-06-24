@@ -23,7 +23,7 @@ use tower_http::{
 use crate::{
     acquisition::Controller,
     error::{LaboriError, Result},
-    model::{LiveEvent, SampleQuery, StartRequest},
+    model::{LiveEvent, SampleQuery, StartRequest, UserEventRequest},
     storage,
 };
 
@@ -59,7 +59,10 @@ pub async fn serve(
         .route("/api/sessions", get(sessions))
         .route("/api/sessions/:session_id", delete(remove_session))
         .route("/api/sessions/:session_id/samples", get(samples))
-        .route("/api/sessions/:session_id/events", get(events))
+        .route(
+            "/api/sessions/:session_id/events",
+            get(events).post(add_event),
+        )
         .route("/api/live", get(live_socket))
         .route_service("/", ServeFile::new(root.join("index.html")))
         .route_service("/multi", ServeFile::new(root.join("index-multi.html")))
@@ -143,6 +146,32 @@ async fn events(
     Path(session_id): Path<i64>,
 ) -> Result<Json<Vec<crate::model::SessionEvent>>> {
     Ok(Json(storage::read_events(&state.pool, session_id).await?))
+}
+
+async fn add_event(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<i64>,
+    Json(request): Json<UserEventRequest>,
+) -> Result<Json<crate::model::SessionEvent>> {
+    let request = request.validate()?;
+    let status = state.controller.status().await;
+    let at_sequence = request.at_sequence.unwrap_or(-1);
+    let event = storage::insert_user_event(
+        &state.pool,
+        session_id,
+        at_sequence,
+        &request.kind,
+        &request.message,
+    )
+    .await?;
+    if status.session_id == Some(session_id) {
+        let _ = state.live.send(LiveEvent::Notice {
+            session_id,
+            at_sequence,
+            message: format!("{}: {}", event.kind, event.message),
+        });
+    }
+    Ok(Json(event))
 }
 
 async fn live_socket(

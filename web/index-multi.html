@@ -41,6 +41,12 @@
           <option value="0.01">10 msec</option>
           <option value="0.001">1 msec</option>
         </select>
+        <label for="session_title" class="label">Measurement Name</label>
+        <input id="session_title" class="text_input" type="text" placeholder="e.g. multi-channel adsorption">
+        <label for="sample_name" class="label">Sample</label>
+        <input id="sample_name" class="text_input" type="text" placeholder="e.g. buffer screen">
+        <label for="session_note" class="label">Note</label>
+        <textarea id="session_note" class="text_area" rows="3" placeholder="Flow, crystal IDs, temperature..."></textarea>
         <fieldset class="channel_selector">
           <legend>Channels</legend>
           <label><input type="checkbox" name="channel" value="0" checked> CH0</label>
@@ -66,6 +72,28 @@
               <td><input type="text" value="" id="response_field" class="field_left" readonly></td>
           </tr>
         </table>
+      </div>
+    </div>
+
+    <div id="qcm_wrapper" class="wrapper">
+      <div class="qcm_panel">
+        <h2>QCM Events</h2>
+        <div class="qcm_grid">
+          <label>
+            Event
+            <select id="event_kind">
+              <option value="injection">Injection</option>
+              <option value="wash">Wash</option>
+              <option value="buffer">Buffer exchange</option>
+              <option value="baseline">Baseline</option>
+              <option value="note">Note</option>
+            </select>
+          </label>
+          <input id="event_message" class="text_input" type="text" placeholder="Event note">
+          <button id="add_event" class="small_button" type="button">Add Event</button>
+        </div>
+        <div id="stats" class="stats_box">No data loaded.</div>
+        <div id="event_list" class="event_list"></div>
       </div>
     </div>
 

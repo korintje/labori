@@ -28,11 +28,20 @@ pub struct StartRequest {
     #[serde(default)]
     pub period_seconds: Option<f64>,
     #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub sample_name: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
     pub channels: Vec<u8>,
 }
 
 impl StartRequest {
     pub fn validate(mut self) -> Result<Self> {
+        self.title = clean_text_field(self.title, 120);
+        self.sample_name = clean_text_field(self.sample_name, 120);
+        self.note = clean_text_field(self.note, 4_000);
         if !is_valid_gate_seconds(self.gate_seconds) {
             return Err(LaboriError::Invalid(
                 "gate_seconds must be one of 0.00001, 0.0001, 0.001, 0.01, 0.1, 1, or 10".into(),
@@ -67,6 +76,15 @@ impl StartRequest {
 
 pub const GATE_SECONDS: [f64; 7] = [0.000_01, 0.000_1, 0.001, 0.01, 0.1, 1.0, 10.0];
 
+fn clean_text_field(value: String, max_chars: usize) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|ch| !ch.is_control() || *ch == '\n' || *ch == '\t')
+        .take(max_chars)
+        .collect()
+}
+
 fn is_valid_gate_seconds(value: f64) -> bool {
     value.is_finite()
         && GATE_SECONDS
@@ -81,6 +99,8 @@ pub struct MeasurementStatus {
     pub mode: Option<MeasurementMode>,
     pub gate_seconds: Option<f64>,
     pub period_seconds: Option<f64>,
+    pub title: Option<String>,
+    pub sample_name: Option<String>,
     pub channels: Vec<u8>,
     pub last_error: Option<String>,
 }
@@ -93,6 +113,9 @@ pub struct SessionSummary {
     pub mode: String,
     pub gate_seconds: f64,
     pub period_seconds: Option<f64>,
+    pub title: String,
+    pub sample_name: String,
+    pub note: String,
     pub channels: String,
     pub state: String,
     pub sample_count: i64,
@@ -117,6 +140,33 @@ pub struct SessionEvent {
     pub at_sequence: i64,
     pub kind: String,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UserEventRequest {
+    pub kind: String,
+    pub message: String,
+    #[serde(default)]
+    pub at_sequence: Option<i64>,
+}
+
+impl UserEventRequest {
+    pub fn validate(mut self) -> Result<Self> {
+        self.kind = clean_text_field(self.kind, 40);
+        self.message = clean_text_field(self.message, 1_000);
+        if self.kind.is_empty() {
+            self.kind = "user".into();
+        }
+        if self.message.is_empty() {
+            return Err(LaboriError::Invalid("event message is required".into()));
+        }
+        if self.at_sequence.is_some_and(|sequence| sequence < -1) {
+            return Err(LaboriError::Invalid(
+                "at_sequence must be -1 or greater".into(),
+            ));
+        }
+        Ok(self)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +216,9 @@ mod tests {
             mode: MeasurementMode::Multi,
             gate_seconds: 0.001,
             period_seconds: Some(0.01),
+            title: String::new(),
+            sample_name: String::new(),
+            note: String::new(),
             channels: vec![3, 1, 3],
         }
         .validate()
@@ -179,6 +232,9 @@ mod tests {
             mode: MeasurementMode::SingleDirect,
             gate_seconds: 0.0,
             period_seconds: None,
+            title: String::new(),
+            sample_name: String::new(),
+            note: String::new(),
             channels: vec![],
         }
         .validate()
@@ -187,6 +243,9 @@ mod tests {
             mode: MeasurementMode::Multi,
             gate_seconds: 0.1,
             period_seconds: None,
+            title: String::new(),
+            sample_name: String::new(),
+            note: String::new(),
             channels: vec![6],
         }
         .validate()
@@ -199,6 +258,9 @@ mod tests {
             mode: MeasurementMode::SingleDirect,
             gate_seconds: 0.02,
             period_seconds: None,
+            title: String::new(),
+            sample_name: String::new(),
+            note: String::new(),
             channels: vec![],
         }
         .validate()

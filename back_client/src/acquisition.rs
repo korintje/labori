@@ -113,12 +113,7 @@ async fn controller_loop(
                                 continue;
                             }
                         };
-                        let session_id = match storage.begin(
-                            request.mode,
-                            request.gate_seconds,
-                            request.period_seconds,
-                            request.channels.clone(),
-                        ).await {
+                        let session_id = match storage.begin(request.clone()).await {
                             Ok(id) => id,
                             Err(error) => {
                                 let _ = reply.send(Err(error));
@@ -131,6 +126,8 @@ async fn controller_loop(
                             mode: Some(request.mode),
                             gate_seconds: Some(request.gate_seconds),
                             period_seconds: request.period_seconds,
+                            title: Some(request.title.clone()),
+                            sample_name: Some(request.sample_name.clone()),
                             channels: request.channels.clone(),
                             last_error: None,
                         };
@@ -201,6 +198,8 @@ async fn controller_loop(
                     mode: None,
                     gate_seconds: None,
                     period_seconds: None,
+                    title: None,
+                    sample_name: None,
                     channels: Vec::new(),
                     last_error: error_message,
                 };

@@ -10,6 +10,9 @@ const historyViews = Array.from({ length: CHANNEL_COUNT }, (_, index) =>
 const indicator = document.getElementById("socket");
 const gateSelect = document.getElementById("gate_select");
 const periodSelect = document.getElementById("period_select");
+const sessionTitle = document.getElementById("session_title");
+const sampleName = document.getElementById("sample_name");
+const sessionNote = document.getElementById("session_note");
 const runButton = document.getElementById("run");
 const stopButton = document.getElementById("stop");
 const historySelect = document.getElementById("history_select");
@@ -17,12 +20,20 @@ const saveButton = document.getElementById("save_csv_history");
 const removeButton = document.getElementById("remove");
 const responseField = document.getElementById("response_field");
 const channelInputs = [...document.querySelectorAll('input[name="channel"]')];
+const eventKind = document.getElementById("event_kind");
+const eventMessage = document.getElementById("event_message");
+const addEventButton = document.getElementById("add_event");
+const statsBox = document.getElementById("stats");
+const eventList = document.getElementById("event_list");
 
 let connected = false;
 let running = false;
 let busy = false;
 let currentSessionId = null;
+let currentSession = null;
 let historySamples = [];
+let historyEvents = [];
+let latestSequence = -1;
 
 const monitorLayouts = monitorViews.map((_, channel) => ({
   title: `QCM monitor - CH${channel}`,
@@ -68,10 +79,14 @@ function updateControls() {
   stopButton.disabled = !connected || !running || busy;
   gateSelect.disabled = !connected || running || busy;
   periodSelect.disabled = !connected || running || busy;
+  sessionTitle.disabled = !connected || running || busy;
+  sampleName.disabled = !connected || running || busy;
+  sessionNote.disabled = !connected || running || busy;
   channelInputs.forEach(input => { input.disabled = running || busy; });
   historySelect.disabled = busy;
   saveButton.disabled = busy || !historySelect.value;
   removeButton.disabled = busy || running || !historySelect.value;
+  addEventButton.disabled = busy || !currentSessionId;
 }
 
 function setBusy(value) {
@@ -82,15 +97,18 @@ function setBusy(value) {
 function applyStatus(status) {
   running = Boolean(status.running);
   currentSessionId = status.session_id;
+  if (status.title !== undefined) currentSession = status;
   if (status.last_error) showResponse(status.last_error);
   updateControls();
 }
 
 function resetMonitors() {
+  latestSequence = -1;
   monitorViews.forEach((view, channel) => {
     Plotly.react(view, [{ x: [], y: [], mode: "lines" }],
       monitorLayouts[channel], plotConfig);
   });
+  renderStats([]);
 }
 
 async function refreshSessions() {
@@ -100,8 +118,10 @@ async function refreshSessions() {
   for (const session of sessions) {
     const option = document.createElement("option");
     option.value = String(session.id);
-    option.textContent = `#${session.id} ${session.started_at} CH[${session.channels}] [${session.state}]`;
+    const label = session.title || session.sample_name || `session ${session.id}`;
+    option.textContent = `#${session.id} ${label} ${session.started_at} CH[${session.channels}] [${session.state}]`;
     option.dataset.filename = `labori-${session.id}-${session.started_at.replaceAll(":", "-")}`;
+    option.dataset.session = JSON.stringify(session);
     historySelect.append(option);
   }
   if ([...historySelect.options].some(option => option.value === selected)) {
@@ -141,6 +161,31 @@ function renderHistory() {
   }
 }
 
+function renderStats(samples = historySamples) {
+  if (samples.length === 0) {
+    statsBox.textContent = "No data loaded.";
+    return;
+  }
+  const byChannel = Array.from({ length: CHANNEL_COUNT }, (_, channel) =>
+    samples.filter(sample => sample.channel === channel)
+  );
+  statsBox.textContent = byChannel
+    .map((rows, channel) => rows.length === 0
+      ? `CH${channel}: n=0`
+      : `CH${channel}: n=${rows.length}, latest=${rows.at(-1).value.toFixed(3)} Hz`)
+    .join(" | ");
+}
+
+function renderEvents(events) {
+  eventList.replaceChildren();
+  for (const event of events) {
+    const row = document.createElement("div");
+    row.className = "event_row";
+    row.textContent = `${event.created_at} [${event.kind}] ${event.message}`;
+    eventList.append(row);
+  }
+}
+
 function connectLive() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const socket = new WebSocket(`${protocol}//${location.host}/api/live`);
@@ -160,6 +205,7 @@ function connectLive() {
       message.sample.session_id === currentSessionId
     ) {
       const sample = message.sample;
+      latestSequence = sample.sequence;
       Plotly.extendTraces(
         monitorViews[sample.channel],
         { x: [[sample.ended_ns / 1e9]], y: [[sample.value]] },
@@ -186,7 +232,12 @@ historySelect.addEventListener("change", async () => {
   setBusy(true);
   try {
     historySamples = await readAllSamples(historySelect.value);
+    historyEvents = await api(`/api/sessions/${historySelect.value}/events`);
+    currentSession = JSON.parse(historySelect.selectedOptions[0].dataset.session);
+    currentSessionId = Number(historySelect.value);
     renderHistory();
+    renderEvents(historyEvents);
+    renderStats(historySamples);
     showResponse(`Loaded ${historySamples.length} samples`);
   } catch (error) {
     showResponse(error.message);
@@ -205,10 +256,14 @@ runButton.addEventListener("click", async () => {
         mode: "multi",
         gate_seconds: Number(gateSelect.value),
         period_seconds: periodSelect.value === "" ? null : Number(periodSelect.value),
+        title: sessionTitle.value,
+        sample_name: sampleName.value,
+        note: sessionNote.value,
         channels: selectedChannels(),
       }),
     });
     applyStatus(status);
+    currentSession = status;
     showResponse(`Started session #${status.session_id}`);
   } catch (error) {
     showResponse(error.message);
@@ -232,6 +287,21 @@ stopButton.addEventListener("click", async () => {
 
 saveButton.addEventListener("click", () => {
   if (!historySelect.value) return;
+  const metadata = [
+    "# labori QCM export",
+    `# exported_at,${new Date().toISOString()}`,
+    `# session_id,${historySelect.value}`,
+    `# title,${currentSession?.title ?? ""}`,
+    `# sample_name,${currentSession?.sample_name ?? ""}`,
+    `# mode,${currentSession?.mode ?? ""}`,
+    `# gate_seconds,${currentSession?.gate_seconds ?? ""}`,
+    `# period_seconds,${currentSession?.period_seconds ?? ""}`,
+    `# channels,${currentSession?.channels ?? ""}`,
+    `# note,${String(currentSession?.note ?? "").replaceAll("\n", " ")}`,
+    "# events",
+    ...historyEvents.map(event => `# ${event.created_at},${event.kind},${event.at_sequence},${event.message}`),
+    "# data",
+  ];
   for (let channel = 0; channel < CHANNEL_COUNT; channel += 1) {
     const samples = historySamples.filter(sample => sample.channel === channel);
     if (samples.length === 0) continue;
@@ -241,7 +311,8 @@ saveButton.addEventListener("click", () => {
         `${sample.sequence},${sample.started_ns / 1e9},${sample.ended_ns / 1e9},${sample.value}`
       );
     }
-    const blob = new Blob([`${rows.join("\n")}\n`], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([`${metadata.join("\n")}\n${rows.join("\n")}\n`],
+      { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
     link.download = `${historySelect.selectedOptions[0].dataset.filename}-ch${channel}.csv`;
     link.href = URL.createObjectURL(blob);
@@ -257,9 +328,36 @@ removeButton.addEventListener("click", async () => {
   try {
     await api(`/api/sessions/${sessionId}`, { method: "DELETE" });
     historySamples = [];
+    historyEvents = [];
     await refreshSessions();
     renderHistory();
+    renderEvents([]);
+    renderStats([]);
     showResponse(`Deleted session #${sessionId}`);
+  } catch (error) {
+    showResponse(error.message);
+  } finally {
+    setBusy(false);
+  }
+});
+
+addEventButton.addEventListener("click", async () => {
+  if (!currentSessionId) return;
+  const message = eventMessage.value.trim() || eventKind.value;
+  setBusy(true);
+  try {
+    const event = await api(`/api/sessions/${currentSessionId}/events`, {
+      method: "POST",
+      body: JSON.stringify({
+        kind: eventKind.value,
+        message,
+        at_sequence: latestSequence,
+      }),
+    });
+    historyEvents.push(event);
+    renderEvents(historyEvents);
+    eventMessage.value = "";
+    showResponse(`Added event: ${event.kind}`);
   } catch (error) {
     showResponse(error.message);
   } finally {

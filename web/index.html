@@ -39,11 +39,48 @@
             <option value="0.01">10 msec</option>
             <option value="0.001">1 msec</option>
           </select>
+          <label for="session_title" class="label">Measurement Name</label>
+          <input id="session_title" class="text_input" type="text" placeholder="e.g. BSA adsorption run 1">
+          <label for="sample_name" class="label">Sample</label>
+          <input id="sample_name" class="text_input" type="text" placeholder="e.g. 1 mg/mL BSA">
+          <label for="session_note" class="label">Note</label>
+          <textarea id="session_note" class="text_area" rows="3" placeholder="Buffer, flow rate, crystal ID, temperature..."></textarea>
         </div>
         <div class="button_box">
           <button id="run" class="my_button" type="button">Run</button>
           <button id="stop" class="my_button" type="button">Stop</button>
         </div>
+      </div>
+    </div>
+
+    <div id="qcm_wrapper" class="wrapper">
+      <div class="qcm_panel">
+        <h2>QCM Tools</h2>
+        <div class="qcm_grid">
+          <label>
+            Display
+            <select id="display_mode">
+              <option value="frequency">Frequency</option>
+              <option value="delta">Δf from baseline</option>
+            </select>
+          </label>
+          <button id="set_baseline" class="small_button" type="button">Use visible/loaded data as baseline</button>
+          <button id="clear_baseline" class="small_button" type="button">Clear baseline</button>
+          <label>
+            Event
+            <select id="event_kind">
+              <option value="injection">Injection</option>
+              <option value="wash">Wash</option>
+              <option value="buffer">Buffer exchange</option>
+              <option value="baseline">Baseline</option>
+              <option value="note">Note</option>
+            </select>
+          </label>
+          <input id="event_message" class="text_input" type="text" placeholder="Event note">
+          <button id="add_event" class="small_button" type="button">Add Event</button>
+        </div>
+        <div id="stats" class="stats_box">No data loaded.</div>
+        <div id="event_list" class="event_list"></div>
       </div>
     </div>
 

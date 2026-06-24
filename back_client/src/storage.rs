@@ -9,16 +9,13 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::{
     error::{LaboriError, Result},
-    model::{MeasurementMode, Sample, SessionEvent, SessionSummary},
+    model::{Sample, SessionEvent, SessionSummary, StartRequest},
 };
 
 #[derive(Debug)]
 pub enum StorageMessage {
     Begin {
-        mode: MeasurementMode,
-        gate_seconds: f64,
-        period_seconds: Option<f64>,
-        channels: Vec<u8>,
+        request: StartRequest,
         reply: oneshot::Sender<Result<i64>>,
     },
     Sample(Sample),
@@ -47,20 +44,11 @@ pub struct StorageHandle {
 }
 
 impl StorageHandle {
-    pub async fn begin(
-        &self,
-        mode: MeasurementMode,
-        gate_seconds: f64,
-        period_seconds: Option<f64>,
-        channels: Vec<u8>,
-    ) -> Result<i64> {
+    pub async fn begin(&self, request: StartRequest) -> Result<i64> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
             .send(StorageMessage::Begin {
-                mode,
-                gate_seconds,
-                period_seconds,
-                channels,
+                request,
                 reply: reply_tx,
             })
             .await
@@ -189,6 +177,9 @@ async fn initialize(pool: &SqlitePool) -> Result<()> {
             mode             TEXT NOT NULL,
             gate_seconds     REAL NOT NULL,
             period_seconds   REAL,
+            title            TEXT NOT NULL DEFAULT '',
+            sample_name      TEXT NOT NULL DEFAULT '',
+            note             TEXT NOT NULL DEFAULT '',
             channels         TEXT NOT NULL,
             state            TEXT NOT NULL,
             sample_count     INTEGER NOT NULL DEFAULT 0,
@@ -257,6 +248,21 @@ async fn ensure_session_columns(pool: &SqlitePool) -> Result<()> {
             .execute(pool)
             .await?;
     }
+    if !columns.iter().any(|name| name == "title") {
+        sqlx::query("ALTER TABLE sessions ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await?;
+    }
+    if !columns.iter().any(|name| name == "sample_name") {
+        sqlx::query("ALTER TABLE sessions ADD COLUMN sample_name TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await?;
+    }
+    if !columns.iter().any(|name| name == "note") {
+        sqlx::query("ALTER TABLE sessions ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
 
@@ -302,10 +308,10 @@ async fn writer(
                             Ok(())
                         }
                     }
-                    StorageMessage::Begin { mode, gate_seconds, period_seconds, channels, reply } => {
+                    StorageMessage::Begin { request, reply } => {
                         let result = async {
                             flush_samples(&pool, &mut samples).await?;
-                            begin_session(&pool, mode, gate_seconds, period_seconds, channels).await
+                            begin_session(&pool, request).await
                         }.await;
                         let failed = result.as_ref().err().map(ToString::to_string);
                         let _ = reply.send(result);
@@ -379,27 +385,25 @@ async fn flush_samples(pool: &SqlitePool, samples: &mut Vec<Sample>) -> Result<(
     Ok(())
 }
 
-async fn begin_session(
-    pool: &SqlitePool,
-    mode: MeasurementMode,
-    gate_seconds: f64,
-    period_seconds: Option<f64>,
-    channels: Vec<u8>,
-) -> Result<i64> {
-    let channels = channels
+async fn begin_session(pool: &SqlitePool, request: StartRequest) -> Result<i64> {
+    let channels = request
+        .channels
         .iter()
         .map(u8::to_string)
         .collect::<Vec<_>>()
         .join(",");
     let result = sqlx::query(
         "INSERT INTO sessions
-         (started_at, mode, gate_seconds, period_seconds, channels, state)
-         VALUES (?, ?, ?, ?, ?, 'running')",
+         (started_at, mode, gate_seconds, period_seconds, title, sample_name, note, channels, state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running')",
     )
     .bind(now())
-    .bind(mode.as_str())
-    .bind(gate_seconds)
-    .bind(period_seconds)
+    .bind(request.mode.as_str())
+    .bind(request.gate_seconds)
+    .bind(request.period_seconds)
+    .bind(request.title)
+    .bind(request.sample_name)
+    .bind(request.note)
     .bind(channels)
     .execute(pool)
     .await?;
@@ -453,7 +457,8 @@ async fn finish_session(
 pub async fn list_sessions(pool: &SqlitePool, mode: Option<&str>) -> Result<Vec<SessionSummary>> {
     let rows = if mode == Some("single") {
         sqlx::query_as::<_, SessionSummary>(
-            "SELECT id, started_at, ended_at, mode, gate_seconds, period_seconds, channels,
+            "SELECT id, started_at, ended_at, mode, gate_seconds, period_seconds,
+                    title, sample_name, note, channels,
                     state, sample_count, error
              FROM sessions
              WHERE mode IN ('single_log', 'single_direct', 'single')
@@ -463,7 +468,8 @@ pub async fn list_sessions(pool: &SqlitePool, mode: Option<&str>) -> Result<Vec<
         .await?
     } else if let Some(mode) = mode {
         sqlx::query_as::<_, SessionSummary>(
-            "SELECT id, started_at, ended_at, mode, gate_seconds, period_seconds, channels,
+            "SELECT id, started_at, ended_at, mode, gate_seconds, period_seconds,
+                    title, sample_name, note, channels,
                     state, sample_count, error
              FROM sessions WHERE mode = ? ORDER BY id DESC LIMIT 1000",
         )
@@ -472,7 +478,8 @@ pub async fn list_sessions(pool: &SqlitePool, mode: Option<&str>) -> Result<Vec<
         .await?
     } else {
         sqlx::query_as::<_, SessionSummary>(
-            "SELECT id, started_at, ended_at, mode, gate_seconds, period_seconds, channels,
+            "SELECT id, started_at, ended_at, mode, gate_seconds, period_seconds,
+                    title, sample_name, note, channels,
                     state, sample_count, error
              FROM sessions ORDER BY id DESC LIMIT 1000",
         )
@@ -513,6 +520,36 @@ pub async fn read_events(pool: &SqlitePool, session_id: i64) -> Result<Vec<Sessi
     .await?)
 }
 
+pub async fn insert_user_event(
+    pool: &SqlitePool,
+    session_id: i64,
+    at_sequence: i64,
+    kind: &str,
+    message: &str,
+) -> Result<SessionEvent> {
+    let created_at = now();
+    let result = sqlx::query(
+        "INSERT INTO session_events
+         (session_id, created_at, at_sequence, kind, message)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(session_id)
+    .bind(&created_at)
+    .bind(at_sequence)
+    .bind(kind)
+    .bind(message)
+    .execute(pool)
+    .await?;
+    Ok(SessionEvent {
+        id: result.last_insert_rowid(),
+        session_id,
+        created_at,
+        at_sequence,
+        kind: kind.to_string(),
+        message: message.to_string(),
+    })
+}
+
 pub async fn delete_session(pool: &SqlitePool, session_id: i64) -> Result<()> {
     let result = sqlx::query("DELETE FROM sessions WHERE id = ? AND state != 'running'")
         .bind(session_id)
@@ -533,6 +570,7 @@ fn now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::MeasurementMode;
 
     #[tokio::test]
     async fn persists_session_and_ordered_samples() {
@@ -546,7 +584,15 @@ mod tests {
             .await
             .unwrap();
         let session_id = storage
-            .begin(MeasurementMode::SingleDirect, 0.001, Some(0.01), Vec::new())
+            .begin(StartRequest {
+                mode: MeasurementMode::SingleDirect,
+                gate_seconds: 0.001,
+                period_seconds: Some(0.01),
+                title: "test".into(),
+                sample_name: "sample".into(),
+                note: "note".into(),
+                channels: Vec::new(),
+            })
             .await
             .unwrap();
         for sequence in 0..20 {
