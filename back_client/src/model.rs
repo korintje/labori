@@ -24,23 +24,33 @@ impl MeasurementMode {
 #[derive(Debug, Clone, Deserialize)]
 pub struct StartRequest {
     pub mode: MeasurementMode,
-    pub interval_seconds: f64,
+    pub gate_seconds: f64,
+    #[serde(default)]
+    pub period_seconds: Option<f64>,
     #[serde(default)]
     pub channels: Vec<u8>,
 }
 
 impl StartRequest {
     pub fn validate(mut self) -> Result<Self> {
-        if !self.interval_seconds.is_finite()
-            || self.interval_seconds < 0.000_01
-            || self.interval_seconds > 10.0
-        {
+        if !is_valid_gate_seconds(self.gate_seconds) {
             return Err(LaboriError::Invalid(
-                "interval_seconds must be between 0.00001 and 10".into(),
+                "gate_seconds must be one of 0.00001, 0.0001, 0.001, 0.01, 0.1, 1, or 10".into(),
             ));
         }
+        if let Some(period_seconds) = self.period_seconds {
+            if !period_seconds.is_finite() || period_seconds <= 0.0 || period_seconds > 100.0 {
+                return Err(LaboriError::Invalid(
+                    "period_seconds must be greater than 0 and no more than 100".into(),
+                ));
+            }
+        }
         match self.mode {
-            MeasurementMode::SingleLog | MeasurementMode::SingleDirect => self.channels.clear(),
+            MeasurementMode::SingleLog => {
+                self.period_seconds.get_or_insert(self.gate_seconds);
+                self.channels.clear();
+            }
+            MeasurementMode::SingleDirect => self.channels.clear(),
             MeasurementMode::Multi => {
                 self.channels.sort_unstable();
                 self.channels.dedup();
@@ -55,12 +65,22 @@ impl StartRequest {
     }
 }
 
+pub const GATE_SECONDS: [f64; 7] = [0.000_01, 0.000_1, 0.001, 0.01, 0.1, 1.0, 10.0];
+
+fn is_valid_gate_seconds(value: f64) -> bool {
+    value.is_finite()
+        && GATE_SECONDS
+            .iter()
+            .any(|allowed| (value - allowed).abs() <= allowed.abs() * 1e-9)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MeasurementStatus {
     pub running: bool,
     pub session_id: Option<i64>,
     pub mode: Option<MeasurementMode>,
-    pub interval_seconds: Option<f64>,
+    pub gate_seconds: Option<f64>,
+    pub period_seconds: Option<f64>,
     pub channels: Vec<u8>,
     pub last_error: Option<String>,
 }
@@ -71,7 +91,8 @@ pub struct SessionSummary {
     pub started_at: String,
     pub ended_at: Option<String>,
     pub mode: String,
-    pub interval_seconds: f64,
+    pub gate_seconds: f64,
+    pub period_seconds: Option<f64>,
     pub channels: String,
     pub state: String,
     pub sample_count: i64,
@@ -143,7 +164,8 @@ mod tests {
     fn validates_and_normalizes_multi_channel_request() {
         let request = StartRequest {
             mode: MeasurementMode::Multi,
-            interval_seconds: 0.001,
+            gate_seconds: 0.001,
+            period_seconds: Some(0.01),
             channels: vec![3, 1, 3],
         }
         .validate()
@@ -155,15 +177,29 @@ mod tests {
     fn rejects_invalid_interval_and_channel() {
         assert!(StartRequest {
             mode: MeasurementMode::SingleDirect,
-            interval_seconds: 0.0,
+            gate_seconds: 0.0,
+            period_seconds: None,
             channels: vec![],
         }
         .validate()
         .is_err());
         assert!(StartRequest {
             mode: MeasurementMode::Multi,
-            interval_seconds: 0.1,
+            gate_seconds: 0.1,
+            period_seconds: None,
             channels: vec![6],
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_gate_values_that_the_instrument_would_round() {
+        assert!(StartRequest {
+            mode: MeasurementMode::SingleDirect,
+            gate_seconds: 0.02,
+            period_seconds: None,
+            channels: vec![],
         }
         .validate()
         .is_err());

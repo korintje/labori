@@ -1,20 +1,108 @@
 # labori
 
-SC-7217A / SC-7215A 周波数カウンタを Raspberry Pi から制御し、測定・永続化・リアルタイム表示を行うデータ収集システムです。
+labori は、IWATSU SC-7217A / SC-7215A 周波数カウンタを Raspberry Pi などから LAN 制御し、測定値をリアルタイム表示しながら SQLite に記録するためのソフトウェアです。
 
-labori 0.2 は、計測の堅牢性、時間分解能、正確性、性能、運用の簡潔さを優先し、単一の Rust サービスへ再設計されています。ブラウザ側には表示用の素の JavaScript だけを残し、Node.js サーバーや SQLite の二重アクセスは使用しません。
+現在の設計では、フロントエンド用の Node.js サーバは使いません。Rust の単一プロセスが、測定制御、DB 書き込み、REST API、WebSocket、静的 Web UI 配信をまとめて担当します。ブラウザ側には表示と操作のための小さな JavaScript だけを残しています。
 
-## 設計原則
+## 設計方針
 
-- 計測器からの取得処理は、DB読出しやブラウザ描画を待たない
-- SQLiteへの書込みは単一writerに限定する
-- 全サンプルへセッションIDと単調増加する連番を付ける
-- 時刻は浮動小数点秒ではなく、セッション開始からの整数ナノ秒で保存する
-- 通信断は記録し、再接続後も同じセッションを継続する
-- 保存キュー飽和時は黙って欠損させず、測定を失敗として終了する
-- プロセス異常終了時のセッションは、次回起動時に `interrupted` として確定する
-- ライブ表示はDBポーリングではなくWebSocketで配信する
-- 履歴データはページングして読み出す
+- 測定タスクは SQLite 書き込みを待たない
+- SQLite 書き込みは単一 writer に集約する
+- キューが飽和したら黙って捨てず、セッションを失敗として終了する
+- 各サンプルには単調時刻の `started_ns` / `ended_ns` を保存する
+- 通信断や再接続はイベントとして保存する
+- 起動時に未完了セッションを `interrupted` として確定する
+- UI のライブ表示は WebSocket、履歴表示は REST API で行う
+
+## 測定モード
+
+### `single_direct` — `:MEAS?` 直接測定
+
+長時間測定で、記録された時間軸と実時間の一致を優先するモードです。
+
+開始時に SC-7217A を HOLD 状態にし、ホスト側から `:MEAS?` を 1 回ずつ送ります。
+
+```text
+:GATE:TYPE INT
+:GATE:TIME <gate_seconds>
+:FRUN 0
+loop:
+    optional wait until next period_seconds slot
+    record started_ns
+    :MEAS?
+    record ended_ns
+    save sample
+```
+
+`period_seconds` を指定した場合は、Raspberry Pi 側の単調時刻で次の測定開始予定時刻まで待ちます。測定や通信が予定より長引いた場合は待たずに次へ進みますが、保存される時刻は実測時刻のままです。
+
+`period_seconds` を省略または `null` にした場合は、前回の応答後すぐ次の `:MEAS?` を送ります。
+
+### `single_log` — 装置内蔵ログ
+
+SC-7217A 側のフリーランとログ機能を使うモードです。高いスループットが期待できますが、長時間測定では装置内部ログの時間軸と実時間がずれる可能性があります。
+
+```text
+:GATE:TYPE INT
+:GATE:TIME <gate_seconds>
+:DISP:SRAT <period_seconds>
+:LOG:LEN 5e5
+:LOG:CLE
+:FRUN 1
+loop:
+    :LOG:DATA?
+```
+
+`single_log` では `period_seconds` がフリーランの繰り返し周期として使われます。未指定の場合は `gate_seconds` と同じ値に正規化します。
+
+重要: `:LOG:DATA?` のデータ消費動作、応答サイズ上限、ログ満杯時の挙動は実機ファームウェアに依存します。実時間と一致する時間軸が最重要なら `single_direct` を使ってください。
+
+### `multi` — GPIO 切り替え + `:MEAS?`
+
+Raspberry Pi の GPIO で入力を切り替えながら、各チャンネルを `:MEAS?` で測定します。
+
+```text
+:GATE:TYPE INT
+:GATE:TIME <gate_seconds>
+:FRUN 0
+loop:
+    optional wait until next period_seconds slot
+    GPIO select channel
+    wait gpio_settle_millis
+    record started_ns
+    :MEAS?
+    record ended_ns
+    GPIO clear
+    save sample
+```
+
+`period_seconds` は「1サンプルごとの開始周期」です。たとえば 4 チャンネルを選択して `period_seconds = 0.01` にした場合、チャンネル一巡は約 0.04 秒以上になります。
+
+## 時間パラメータ
+
+### `gate_seconds`
+
+SC-7217A の内部ゲート時間です。マニュアル上、有効値は次の離散値です。
+
+- `0.00001` — 10 us
+- `0.0001` — 100 us
+- `0.001` — 1 ms
+- `0.01` — 10 ms
+- `0.1` — 100 ms
+- `1`
+- `10`
+
+labori は、装置側で丸めが起きて時間軸の意味が曖昧になることを避けるため、この値以外を受け付けません。
+
+### `period_seconds`
+
+測定開始周期です。
+
+- `single_direct`: Raspberry Pi 側で次の `:MEAS?` 開始時刻を制御します
+- `single_log`: `:DISP:SRAT` として装置側フリーラン周期に設定します
+- `multi`: 各チャンネルの各サンプル開始周期として使います
+
+`single_direct` と `multi` では `null` または省略により「可能な限り速く」測定します。`single_log` では省略時に `gate_seconds` と同じ値へ正規化します。
 
 ## 構成
 
@@ -39,74 +127,24 @@ flowchart LR
     Web <--> Browser
 ```
 
-Rustプロセス内でも責務は分離されています。
-
-| モジュール | 責務 |
+| ファイル | 役割 |
 |---|---|
-| `acquisition.rs` | SC-7217A通信、再接続、GPIO、サンプル生成 |
-| `storage.rs` | WAL設定、スキーマ、バッチトランザクション、履歴読出し |
-| `web.rs` | REST API、WebSocket、静的ファイル配信 |
-| `model.rs` | APIと保存データの型 |
-| `config.rs` | 設定読込と検証 |
+| `back_client/src/acquisition.rs` | SC-7217A 通信、測定ループ、GPIO、再接続 |
+| `back_client/src/storage.rs` | SQLite schema、単一 writer、バッチ保存、履歴読み出し |
+| `back_client/src/web.rs` | REST API、WebSocket、静的ファイル配信 |
+| `back_client/src/model.rs` | API と保存データの型 |
+| `back_client/src/config.rs` | 設定読み込みと検証 |
+| `web/` | 静的 Web UI |
 
-## 測定方式
-
-### 単一チャンネル
-
-UIから次の二方式を選択できます。長時間測定と実時間に一致する時間軸を優先する場合は、既定の`:MEAS? direct`を使用してください。
-
-#### `single_direct` — `:MEAS?`直接測定
-
-```text
-:FRUN 0
-loop:
-    単調時計で開始時刻を取得
-    :MEAS?
-    応答受信
-    単調時計で終了時刻を取得
-    サンプルを保存
-```
-
-周期調整用のsleepは追加しません。前回の応答を受信すると直ちに次の`:MEAS?`を送るため、Raspberry Pi側で加わる不要な待ち時間を最小化します。
-
-各サンプルには実際の`started_ns`と`ended_ns`を保存します。LAN処理時間などによって測定間隔が伸びても、グラフとCSVの時間軸は実時間の経過を反映します。通信断中の時間も詰めません。
-
-#### `single_log` — 計測器内蔵ログ
-
-```text
-:GATE:TIME
-:LOG:LEN 5e5
-:LOG:CLE
-:FRUN 1
-:LOG:DATA?
-```
-
-時間軸はゲート時間とサンプル連番から生成します。より高いスループットが期待できますが、計測器内部の実記録周期がゲート時間と一致しない場合、実時間とのずれが生じる可能性があります。
-
-通信断が発生した場合は、ホストの単調時計から推定した欠損サンプル数をイベントとして保存します。
-
-> [!IMPORTANT]
-> `:LOG:DATA?`の取得済みデータ消費動作、1024 byte応答上限、内蔵ログ満杯時の動作は実機ファームウェアに依存します。長時間測定で実時間との一致が必要な場合は`single_direct`を選択してください。
-
-### 多チャンネル
-
-GPIOで入力を切り替えた後、`:MEAS?` を実行します。
-
-```text
-GPIO HIGH → 安定待ち → :MEAS? → GPIO LOW → 次チャンネル
-```
-
-各値には、コマンド送信直前と応答受信直後の単調時計時刻がナノ秒単位で保存されます。測定周期はゲート時間、入力安定時間、LAN往復時間の影響を受けます。
-
-## 必要環境
+## 必要なもの
 
 - Raspberry Pi OS
 - Rust stable toolchain
 - IWATSU SC-7217A または SC-7215A
-- 計測器へ到達可能なLAN
-- 多チャンネル利用時はGPIO制御の入力切替回路
+- 測定器へ到達できる LAN
+- multi モードを使う場合は GPIO 入力切り替え回路
 
-Node.jsとnpmは不要です。
+Node.js と npm は実行時には不要です。
 
 ## セットアップ
 
@@ -115,7 +153,7 @@ git clone https://github.com/korintje/labori.git
 cd labori/back_client
 ```
 
-`config.toml`を編集します。
+`config.toml` を編集します。
 
 ```toml
 device_addr = "192.168.201.44:5198"
@@ -134,21 +172,17 @@ storage_flush_millis = 100
 
 | 設定 | 説明 |
 |---|---|
-| `device_addr` | 計測器のLANアドレス。標準ポートは5198 |
-| `measurement_function` | SC-7217Aの測定ファンクション。既定値は`FINA` |
-| `listen_addr` | Web UIとREST APIの待受アドレス |
-| `database_path` | SQLiteファイル |
-| `web_root` | HTML/CSS/JavaScriptの配置先 |
-| `gpio_settle_millis` | 入力切替後の安定待ち時間 |
-| `instrument_timeout_millis` | 接続・応答タイムアウト |
-| `reconnect_millis` | 通信断後の再接続間隔 |
-| `storage_queue_capacity` | 取得とDB writer間の最大保留件数 |
-| `storage_batch_size` | 1トランザクションの最大サンプル数 |
+| `device_addr` | 測定器の LAN アドレス。SC-7217A の標準ポートは `5198` |
+| `measurement_function` | 測定ファンクション。既定値は `FINA` |
+| `listen_addr` | Web UI と API の待受アドレス |
+| `database_path` | SQLite ファイル |
+| `web_root` | HTML/CSS/JavaScript の配置先 |
+| `gpio_settle_millis` | GPIO 切り替え後の安定待ち時間 |
+| `instrument_timeout_millis` | 測定器応答タイムアウト |
+| `reconnect_millis` | 再接続の初期待ち時間 |
+| `storage_queue_capacity` | 測定タスクと DB writer 間のキュー容量 |
+| `storage_batch_size` | 1 トランザクションの最大サンプル数 |
 | `storage_flush_millis` | 少量データを確定する最大待ち時間 |
-
-相対パスは`config.toml`の場所を基準に解決されます。
-
-測定開始時には`FUNC?`と`GATE:TIME?`で設定を読み戻し、要求値と一致しない場合は記録を開始しません。
 
 ## ビルドと起動
 
@@ -157,39 +191,18 @@ cargo build --release
 cargo run --release -- config.toml
 ```
 
-ビルド済みバイナリ:
+ビルド済みバイナリを直接実行する場合:
 
 ```bash
 ./target/release/labori config.toml
 ```
 
-設定ファイルは次の順で選ばれます。
-
-1. コマンドライン第1引数
-2. 環境変数`LABORI_CONFIG`
-3. カレントディレクトリの`config.toml`
-
-ブラウザで次を開きます。
+ブラウザで開きます。
 
 - 単一チャンネル: <http://127.0.0.1:3000/>
-- 多チャンネル: <http://127.0.0.1:3000/multi>
+- 複数チャンネル: <http://127.0.0.1:3000/multi>
 
-別PCから利用する場合は`listen_addr = "0.0.0.0:3000"`とします。認証とTLSは実装していないため、信頼できる実験用LAN内だけで使用してください。
-
-## GPIO割り当て
-
-BCM番号です。
-
-| チャンネル | GPIO |
-|---:|---:|
-| CH0 | 17 |
-| CH1 | 27 |
-| CH2 | 22 |
-| CH3 | 23 |
-| CH4 | 24 |
-| CH5 | 25 |
-
-選択前、測定後、エラー時、オブジェクト破棄時に全GPIOをLOWへ戻します。
+別 PC から使う場合は `listen_addr = "0.0.0.0:3000"` にします。認証や TLS は実装していないため、信頼できる実験用 LAN 内で使ってください。
 
 ## REST API
 
@@ -201,31 +214,40 @@ GET /api/status
 
 ### 測定開始
 
-単一チャンネル（`:MEAS?`直接測定）:
+単一チャンネル、`:MEAS?` 直接測定:
 
 ```http
 POST /api/measurements/start
 Content-Type: application/json
 
-{"mode":"single_direct","interval_seconds":0.001}
+{"mode":"single_direct","gate_seconds":0.001,"period_seconds":0.01}
 ```
 
-単一チャンネル（内蔵ログ）:
+単一チャンネル、`:MEAS?` を最短間隔で繰り返す:
 
 ```http
 POST /api/measurements/start
 Content-Type: application/json
 
-{"mode":"single_log","interval_seconds":0.001}
+{"mode":"single_direct","gate_seconds":0.001,"period_seconds":null}
 ```
 
-多チャンネル:
+単一チャンネル、装置内蔵ログ:
 
 ```http
 POST /api/measurements/start
 Content-Type: application/json
 
-{"mode":"multi","interval_seconds":0.001,"channels":[0,1,2,3]}
+{"mode":"single_log","gate_seconds":0.001,"period_seconds":0.01}
+```
+
+複数チャンネル:
+
+```http
+POST /api/measurements/start
+Content-Type: application/json
+
+{"mode":"multi","gate_seconds":0.001,"period_seconds":0.01,"channels":[0,1,2,3]}
 ```
 
 ### 測定停止
@@ -234,7 +256,7 @@ Content-Type: application/json
 POST /api/measurements/stop
 ```
 
-停止要求後、受理済みサンプルをDBへflushしてからセッションを確定します。
+停止要求後、受理済みサンプルを DB へ flush してからセッションを確定します。
 
 ### セッション一覧
 
@@ -246,21 +268,21 @@ GET /api/sessions?mode=single_log
 GET /api/sessions?mode=multi
 ```
 
-### サンプル読出し
+### サンプル読み出し
 
 ```http
 GET /api/sessions/12/samples?after_sequence=-1&limit=10000
 ```
 
-`limit`は最大50,000件です。
+`limit` の最大値は 50,000 です。
 
-### 通信・欠損イベント
+### イベント読み出し
 
 ```http
 GET /api/sessions/12/events
 ```
 
-通信断、再接続、推定欠損数など、サンプル値とは別の品質情報を取得できます。
+通信断、再接続、欠損推定など、サンプル値とは別の品質情報を取得できます。
 
 ### セッション削除
 
@@ -269,14 +291,6 @@ DELETE /api/sessions/12
 ```
 
 実行中のセッションは削除できません。
-
-### ライブ配信
-
-```text
-WebSocket /api/live
-```
-
-配信イベントは`status`、`sample`、`notice`です。ブラウザの受信が遅れてライブイベントを失っても、DB記録には影響しません。
 
 ## SQLite
 
@@ -287,16 +301,14 @@ WebSocket /api/live
 - `busy_timeout = 5 sec`
 - `foreign_keys = ON`
 
-### sessions
-
-測定条件と終了状態を保持します。
+### `sessions`
 
 ```text
-id, started_at, ended_at, mode, interval_seconds,
+id, started_at, ended_at, mode, gate_seconds, period_seconds,
 channels, state, sample_count, error
 ```
 
-`mode`は`single_direct`、`single_log`、`multi`のいずれかです。
+`mode` は `single_direct`、`single_log`、`multi` のいずれかです。
 
 状態:
 
@@ -306,46 +318,56 @@ channels, state, sample_count, error
 - `failed`
 - `interrupted`
 
-### samples
+### `samples`
 
 ```text
 session_id, sequence, channel, started_ns, ended_ns, value
 ```
 
-`(session_id, sequence)`が主キーです。連番の飛びを調べることで欠損を検出できます。
+`started_ns` と `ended_ns` は、セッション開始からの単調時刻です。
 
-### session_events
-
-通信断、再接続、推定欠損などを保存します。
+### `session_events`
 
 ```text
 session_id, created_at, at_sequence, kind, message
 ```
 
+## GPIO 割り当て
+
+BCM 番号です。
+
+| チャンネル | GPIO |
+|---:|---:|
+| CH0 | 17 |
+| CH1 | 27 |
+| CH2 | 22 |
+| CH3 | 23 |
+| CH4 | 24 |
+| CH5 | 25 |
+
+測定前、測定後、エラー時、プロセス終了時に GPIO を LOW へ戻します。
+
 ## データ保護の考え方
 
-取得タスクはサンプルを有界キューへ`try_send`し、SQLite完了を待ちません。writerは複数サンプルを1トランザクションで保存します。
+測定タスクはサンプルを有界キューへ `try_send` し、SQLite 完了を待ちません。キューが満杯になった場合、時刻を歪めて待つことも、値を黙って捨てることもしません。セッションを `failed` として停止します。
 
-キューが満杯の場合、取得タスクを待たせて時間軸を歪めることも、値を黙って捨てることもしません。セッションを`failed`として停止します。この挙動により「記録されているデータは正しい」という性質を優先します。
+突然の電源断では、キュー内または未確定トランザクション内のデータが失われる可能性があります。重要な測定では次を推奨します。
 
-突然の電源断では、キュー内および未確定トランザクション内のデータが失われる可能性があります。必要に応じて以下を行ってください。
-
-- Raspberry PiへUPSを接続
-- 高耐久SDカードまたはSSDを使用
-- OSの時刻同期を有効化
-- `storage_flush_millis`と`storage_batch_size`を耐久性要件に合わせて調整
-- より強い耐久性が必要ならSQLiteの`synchronous`を`FULL`へ変更
+- Raspberry Pi へ UPS を接続する
+- 高耐久 SD カードまたは SSD を使う
+- OS の時刻同期を有効にする
+- 必要に応じて SQLite の `synchronous` を `FULL` に変更する
 
 ## 検証
 
 ```bash
 cd back_client
 cargo fmt --check
-cargo check
+cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-ブラウザJavaScript:
+ブラウザ JavaScript:
 
 ```bash
 node --check ../web/public/client.js
@@ -354,13 +376,11 @@ node --check ../web/public/client-multi.js
 
 実機では最低限、次を確認してください。
 
-1. 目標ゲート時間で24時間以上の連続記録
-2. LANケーブル切断と再接続
-3. WebSocket切断中もDB記録が継続すること
-4. 複数ブラウザ接続時のサンプルレート
-5. ストレージ高負荷時に黙った欠損が発生しないこと
-6. SIGTERMと電源断後のセッション状態
-7. 保存連番の連続性と計測器表示値との比較
+1. 既知のゲート時間で `:GATE:TIME?` が要求値と一致すること
+2. `single_direct` で長時間測定して、CSV の時間軸が実時間と一致すること
+3. `single_log` で `period_seconds` を変えた時にログの増加速度が変わること
+4. LAN ケーブル切断と再接続後もセッションが継続し、イベントが残ること
+5. multi モードで GPIO の選択チャンネルと保存チャンネルが一致すること
 
 ## ディレクトリ
 
@@ -377,7 +397,7 @@ labori/
 │   │   └── main.rs
 │   ├── Cargo.toml
 │   └── config.toml
-├── web/                   # 静的Web資産
+├── web/
 │   ├── index.html
 │   ├── index-multi.html
 │   └── public/
@@ -386,4 +406,4 @@ labori/
 
 ## License
 
-[back_client/LICENSE](back_client/LICENSE)を参照してください。
+[back_client/LICENSE](back_client/LICENSE) を参照してください。

@@ -8,7 +8,8 @@ const historyViews = Array.from({ length: CHANNEL_COUNT }, (_, index) =>
   document.getElementById(`history${index}`)
 );
 const indicator = document.getElementById("socket");
-const intervalSelect = document.getElementById("interval_select");
+const gateSelect = document.getElementById("gate_select");
+const periodSelect = document.getElementById("period_select");
 const runButton = document.getElementById("run");
 const stopButton = document.getElementById("stop");
 const historySelect = document.getElementById("history_select");
@@ -65,7 +66,8 @@ function selectedChannels() {
 function updateControls() {
   runButton.disabled = !connected || running || busy || selectedChannels().length === 0;
   stopButton.disabled = !connected || !running || busy;
-  intervalSelect.disabled = !connected || running || busy;
+  gateSelect.disabled = !connected || running || busy;
+  periodSelect.disabled = !connected || running || busy;
   channelInputs.forEach(input => { input.disabled = running || busy; });
   historySelect.disabled = busy;
   saveButton.disabled = busy || !historySelect.value;
@@ -201,7 +203,8 @@ runButton.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({
         mode: "multi",
-        interval_seconds: Number(intervalSelect.value),
+        gate_seconds: Number(gateSelect.value),
+        period_seconds: periodSelect.value === "" ? null : Number(periodSelect.value),
         channels: selectedChannels(),
       }),
     });

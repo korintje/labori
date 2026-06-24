@@ -20,13 +20,24 @@
             <option value="single_direct" selected>:MEAS? direct (accurate elapsed time)</option>
             <option value="single_log">Instrument log (higher throughput)</option>
           </select>
-          <label for="interval_select" class="label">Set Interval</label>
-          <select id="interval_select">
+          <label for="gate_select" class="label">Gate Time</label>
+          <select id="gate_select">
             <option value="10.0E+0">10 sec</option>
             <option value="1.0E+0">1 sec</option>
             <option value="0.10E+0">100 msec</option>
             <option value="10E-3">10 msec</option>
             <option value="1.0E-3">1 msec</option>
+            <option value="0.10E-3">100 usec</option>
+            <option value="10E-6">10 usec</option>
+          </select>
+          <label for="period_select" class="label">Start Period</label>
+          <select id="period_select">
+            <option value="">Fastest possible</option>
+            <option value="10.0">10 sec</option>
+            <option value="1.0">1 sec</option>
+            <option value="0.1">100 msec</option>
+            <option value="0.01">10 msec</option>
+            <option value="0.001">1 msec</option>
           </select>
         </div>
         <div class="button_box">
