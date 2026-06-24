@@ -1,5 +1,7 @@
 # labori
 
+![labori QCM Workbench dashboard](docs/images/labori-ui-dashboard.png)
+
 labori は、IWATSU SC-7217A / SC-7215A 周波数カウンタを Raspberry Pi などから LAN 制御し、水晶振動子マイクロバランス（QCM）の測定、記録、イベント管理、閲覧、簡易解析を行うローカルWebアプリケーションです。
 
 Rust の単一バックエンドが、測定制御、SQLite保存、REST API、WebSocket配信、静的Web UI配信を担当します。フロントエンドは uPlot ベースの静的HTML/CSS/JavaScriptで、実行時に Node.js や外部CDNを必要としません。
